@@ -33,7 +33,7 @@ class BanditTrials:
         for trial_num in range(self.n_trials):
             trial = strategy(self.bandits)
             trial.run_trial(time_steps=self.n_time_steps)
-            self.total_trial_results.append(trial.pull_count_per_timestep / h1)
+            self.total_trial_results.append(trial.pull_count_per_timestep/ h1)
             print("Trial {} of {} complete".format(trial_num + 1, self.n_trials), end='\r')
 
     def H1(self, true_means):
@@ -256,7 +256,7 @@ def trial_bandit(algorithm, n_trials=2, n_time_steps=2500):
 ###############################################################
 
 
-class BanditMachine(object):
+class BanditMachine():
     def __init__(self, k):
         self.k = k
         self.q_star = np.random.normal(0, 1, k)
@@ -373,8 +373,8 @@ def parameter_study(param, type_algo, k=10, nb_test=100, nb_step = 100):
     return np.mean(np.mean(rewards, axis=1), axis=1)
 
 
-def plot_parameter_study(nb_test = 100, nb_step = 100, k=10):
-    param = [2**i for i in range(-7, 5, 1)]
+def plot_parameter_study(nb_test = 100, nb_step = 100, k=10, start=-7, end=5, precision=5):
+    param = 2**np.linspace( start, end, (end-start)*precision)
     algos = [EpsilonGreedy, GradientAscent, UpperConfidenceBound1, OptimisticGreedy]
 
     parameter_study_values={}

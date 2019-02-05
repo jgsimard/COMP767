@@ -108,7 +108,6 @@ def policy_iteration(grid_world, gamma=0.9, epsilon=1e-5, modified_max_k=np.Inf)
     V_k, V_kplus1, PI, Q = get_V_Vnext_PI_Q(grid_world)
     policy_stable = False
     all_k = []
-    idx_to_a = {0: 'L', 1: 'U', 2: 'R', 3: 'D'}
 
     while not policy_stable:
         # POLICY EVALUATION (iterates until V_k converges)
