@@ -96,53 +96,51 @@ def get_q(grid_world, V, state, action, gamma=0.9):
     return np.sum([p * (r + gamma * V[newState]) for newState, r, p in grid_world.step(s=state, a=action)])
 
 
-def get_V_Vnext_PI_Q(grid_world):
+def get_V_PI_Q(grid_world):
     V = np.zeros((grid_world.world_size, grid_world.world_size))
-    V_next = np.zeros_like(V)
     PI = np.random.randint(len(grid_world.actions), size=(grid_world.world_size, grid_world.world_size))
     Q = np.zeros((grid_world.world_size, grid_world.world_size, 4), dtype=np.float)
-    return V, V_next, PI, Q
+    return V, PI, Q
 
 
+#use the in place version of the algorithm
 def policy_iteration(grid_world, gamma=0.9, epsilon=1e-5, modified_max_k=np.Inf):
-    V_k, V_kplus1, PI, Q = get_V_Vnext_PI_Q(grid_world)
+    V, PI, Q = get_V_PI_Q(grid_world)
     policy_stable = False
     all_k = []
 
     while not policy_stable:
-        # POLICY EVALUATION (iterates until V_k converges)
+        # POLICY EVALUATION
         k = 0
-        V_kplus1 = copy.deepcopy(V_k)
         delta = epsilon + 1
 
         while delta > epsilon and (k < modified_max_k):
 
             delta = 0
             for state in grid_world.states:
-                V_kplus1[state] = get_q(grid_world, V_k, state, PI[state], gamma)
-                delta = np.max([delta, np.abs(V_kplus1[state] - V_k[state])])
+                old_value = V[state]
+                V[state] = get_q(grid_world, V, state, PI[state], gamma)
+                delta = np.max([delta, np.abs(old_value - V[state])])
 
-            # Updates our current estimate
-            V_k = copy.deepcopy(V_kplus1)
             k += 1
         all_k.append(k)
 
-        # POLICY IMPROVEMENT (greedy action selection with respect to V_k)
+        # POLICY IMPROVEMENT
         policy_stable = True
-        old_PI = copy.deepcopy(PI)
 
         for state in grid_world.states:
-            Q[state[0], state[1], :] = [get_q(grid_world, V_k, state, action, gamma) for action in range(4)]
+            Q[state[0], state[1], :] = [get_q(grid_world, V, state, action, gamma) for action in range(4)]
+            old_value = PI[state]
             PI[state] = np.argmax(Q[state[0], state[1], :])
 
-            if old_PI[state] != PI[state]:
+            if old_value != PI[state]:
                 policy_stable = False
 
-    return {"V": V_k, "PI": PI, "k": all_k}
+    return {"V": V, "PI": PI, "k": all_k}
 
 
 def value_iteration(grid_world, gamma=0.9, epsilon=1e-4):
-    V_k, V_kplus1, PI, Q = get_V_Vnext_PI_Q(grid_world)
+    V, PI, Q = get_V_PI_Q(grid_world)
 
     # POLICY EVALUATION
     k = 0
@@ -151,18 +149,17 @@ def value_iteration(grid_world, gamma=0.9, epsilon=1e-4):
 
         delta = 0
         for state in grid_world.states:
-            Q[state[0], state[1], :] = [get_q(grid_world, V_k, state, action, gamma) for action in range(4)]
-            V_kplus1[state] = np.max(Q[state[0], state[1], :])
+            Q[state[0], state[1], :] = [get_q(grid_world, V, state, action, gamma) for action in range(4)]
+            old_value = V[state]
+            V[state] = np.max(Q[state[0], state[1], :])
 
-            delta = np.max([delta, np.abs(V_kplus1[state] - V_k[state])])
-
-        V_k = copy.deepcopy(V_kplus1)
+            delta = np.max([delta, np.abs(old_value - V[state])])
         k += 1
 
     for state in grid_world.states:
         PI[state] = np.argmax(Q[state[0], state[1], :])
 
-    return {"V": V_k, "PI": PI, "k": k}
+    return {"V": V, "PI": PI, "k": k}
 
 
 #######################
@@ -250,4 +247,3 @@ def clean_print(results, terminal_states):
     print("\nV\n", np.round(results["V"], 1))
     print("\nPI")
     print_policy(results["PI"], terminal_states)
-
