@@ -103,46 +103,52 @@ def get_V_PI_Q(grid_world):
     return V, PI, Q
 
 
-#use the in place version of the algorithm
+def policy_evaluation(grid_world, PI, V, gamma=0.9, epsilon=1e-5, modified_max_k=np.Inf):
+    k = 0
+    delta = epsilon + 1
+
+    while delta > epsilon and (k < modified_max_k):
+
+        delta = 0
+        for state in grid_world.states:
+            old_value = V[state]
+            V[state] = get_q(grid_world, V, state, PI[state], gamma)
+            delta = np.max([delta, np.abs(old_value - V[state])])
+
+        k += 1
+    return k
+
+
+def policy_improvement(grid_world, PI, V, Q, gamma=0.9, epsilon=1e-5):
+    policy_stable = True
+
+    for state in grid_world.states:
+        Q[state[0], state[1], :] = [get_q(grid_world, V, state, action, gamma) for action in range(4)]
+        old_value = PI[state]
+        PI[state] = np.argmax(Q[state[0], state[1], :])
+
+        if old_value != PI[state]:
+            policy_stable = False
+    return policy_stable
+
+
 def policy_iteration(grid_world, gamma=0.9, epsilon=1e-5, modified_max_k=np.Inf):
     V, PI, Q = get_V_PI_Q(grid_world)
     policy_stable = False
-    all_k = []
+    k = []
 
     while not policy_stable:
-        # POLICY EVALUATION
-        k = 0
-        delta = epsilon + 1
+        last_k = policy_evaluation(grid_world, PI, V, gamma, epsilon, modified_max_k)
+        k.append(last_k)
 
-        while delta > epsilon and (k < modified_max_k):
-
-            delta = 0
-            for state in grid_world.states:
-                old_value = V[state]
-                V[state] = get_q(grid_world, V, state, PI[state], gamma)
-                delta = np.max([delta, np.abs(old_value - V[state])])
-
-            k += 1
-        all_k.append(k)
-
-        # POLICY IMPROVEMENT
-        policy_stable = True
-
-        for state in grid_world.states:
-            Q[state[0], state[1], :] = [get_q(grid_world, V, state, action, gamma) for action in range(4)]
-            old_value = PI[state]
-            PI[state] = np.argmax(Q[state[0], state[1], :])
-
-            if old_value != PI[state]:
-                policy_stable = False
-
-    return {"V": V, "PI": PI, "k": all_k}
+        policy_stable = policy_improvement(grid_world, PI, V, Q, gamma, epsilon)
+        
+    return V, PI, k
 
 
 def value_iteration(grid_world, gamma=0.9, epsilon=1e-4):
     V, PI, Q = get_V_PI_Q(grid_world)
 
-    # POLICY EVALUATION
     k = 0
     delta = epsilon + 1
     while delta > epsilon:
@@ -159,7 +165,7 @@ def value_iteration(grid_world, gamma=0.9, epsilon=1e-4):
     for state in grid_world.states:
         PI[state] = np.argmax(Q[state[0], state[1], :])
 
-    return {"V": V, "PI": PI, "k": k}
+    return V, PI, k
 
 
 #######################
@@ -180,26 +186,26 @@ def get_true_value(PI, grid_world, start_state, gamma, iterations=100):
     return g.mean()
 
 
-def policy_and_value_testing(results, grid_world, gamma):
+def policy_and_value_testing(V, PI, grid_world, gamma):
     position_bl = (grid_world.world_size - 1, 0)
     position_br = (grid_world.world_size - 1, grid_world.world_size - 1)
 
-    bl = get_true_value(results["PI"], grid_world, position_bl, gamma)
-    br = get_true_value(results["PI"], grid_world, position_br, gamma)
+    bl = get_true_value(PI, grid_world, position_bl, gamma)
+    br = get_true_value(PI, grid_world, position_br, gamma)
 
     print("\n\nTesting")
-    print("Bottom left. V :", results["V"][position_bl], ", True : ", bl)
-    print("Bottom right. V :", results["V"][position_br], ", True : ", br)
+    print("Bottom left. V :", V[position_bl], ", True : ", bl)
+    print("Bottom right. V :", V[position_br], ", True : ", br)
 
 
 def compute_algorithm(algorithm, algorithm_name, grid_world, gamma, modified_max_k=np.Inf):
     if modified_max_k != np.Inf:
-        results = algorithm(grid_world, gamma, modified_max_k = modified_max_k)
+        V, PI, k = algorithm(grid_world, gamma, modified_max_k = modified_max_k)
     else:
-        results = algorithm(grid_world, gamma)
+        V, PI, k = algorithm(grid_world, gamma)
     print("\n\n"+algorithm_name)
-    clean_print(results, grid_world.terminal_states)
-    policy_and_value_testing(results, grid_world, gamma)
+    clean_print(V, PI, k, grid_world.terminal_states)
+    policy_and_value_testing(V, PI, grid_world, gamma)
 
 
 def hyper_parameter_testing(world_size=5, p_desired_direction=0.7, gamma=0.9, epsilon=1e-5):
@@ -237,13 +243,12 @@ def print_policy(policy, terminal_states):
         print(string)
 
 
-def clean_print(results, terminal_states):
-    if int == type(results["k"]):
-        print("Policy found in {} iterations".format(results["k"]))
+def clean_print(V, PI, k, terminal_states):
+    if int == type(k):
+        print("Policy found in {} iterations".format(k))
     else:
-        print("Policy found in {} iterations, where each policy evaluation lasted for k = {}".format(len(results["k"]),
-                                                                                                     results["k"]))
+        print("Policy found in {} iterations, where each policy evaluation lasted for k = {}".format(len(k), k))
 
-    print("\nV\n", np.round(results["V"], 1))
+    print("\nV\n", np.round(V, 1))
     print("\nPI")
-    print_policy(results["PI"], terminal_states)
+    print_policy(PI, terminal_states)
