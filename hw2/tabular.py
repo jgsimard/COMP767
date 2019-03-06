@@ -28,7 +28,7 @@ class EpsilonGreedy(Policy):
         return a
 
     def get_action_probability_distribution(self, q, s):
-        out = np.ones(self.n) * self.epsilon
+        out = np.ones(self.n) * self.epsilon / self.n
         out[np.argmax(q[s])] += 1 - self.epsilon
         return out
 
