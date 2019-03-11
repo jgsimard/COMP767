@@ -66,9 +66,10 @@ class TileCodingND(LinearApproximationFunction):
         self.dim = len(self.tile_shape)
         self.bounds = bounds_box
         self.offset = self.tile_shape / n_tilings
+        self.size = self.n_bins ** self.dim * self.n_tilings
 
     def get_feature_vector(self, s):
-        feature_vector = np.zeros(self.n_bins**self.dim * self.n_tilings)
+        feature_vector = np.zeros(self.size)
         for tiling in range(self.n_tilings):
             s_prime = s + tiling * self.offset - self.bounds.low
             bin_index = np.floor(s_prime / self.tile_shape).astype(int)

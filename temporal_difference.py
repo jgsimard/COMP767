@@ -94,8 +94,11 @@ def identity(observation):
     return observation
 
 
-def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_return, approximation_function, weights, state_from_observation_function = identity):
-    observation = env.reset()
+def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_return,
+                            approximation_function, weights,
+                            state_from_observation_function = identity,
+                            reset_function = None):
+    observation = env.reset() if reset_function == None else reset_function(env)
     state = state_from_observation_function(observation)
 
     eligibity_trace = np.zeros_like(weights)
@@ -111,8 +114,13 @@ def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_re
         state = state_prime
     return weights
 
-def true_online_td_update(env, policy, learning_rate, discount_rate, lambda_return, approximation_function, weights, state_from_observation_function = identity):
-    observation = env.reset()
+
+def true_online_td_update(env, policy,
+                          learning_rate, discount_rate, lambda_return,
+                          approximation_function, weights,
+                          state_from_observation_function = identity,
+                          reset_function = None):
+    observation = env.reset() if reset_function == None else reset_function(env)
     state = state_from_observation_function(observation)
     x = approximation_function.get_feature_vector(state)
 
