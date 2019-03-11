@@ -56,7 +56,7 @@ class SoftmaxExploration(Policy):
 
 
 #################
-# Control and Prediction Algorithms
+# HISTORY
 #################
 
 class History:
@@ -86,6 +86,34 @@ class History:
     def discounted_return(self):
         return self.g
 
+
+#################
+# PREDICTION
+#################
+def identity(observation):
+    return observation
+
+
+def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_return, approximation_function, weights, eligibity_trace = None, state_from_observation_function = identity):
+    observation = env.reset()
+    state = state_from_observation_function(observation)
+
+    done = False
+    while not done:
+        action = policy(env, state)
+        observation, reward, done, info = env.step(action)
+        state_prime = state_from_observation_function(observation)
+        eligibity_trace = discount_rate * lambda_return * eligibity_trace + approximation_function.grad(state, weights)
+        td_error = reward + discount_rate * approximation_function(state_prime, weights) - approximation_function(state, weights)
+        weights = weights + learning_rate * td_error * eligibity_trace
+        state = state_prime
+
+
+
+
+#################
+# CONTROL
+#################
 
 def sarsa_update(env, policy, q, learning_rate, discount_rate):
     s = env.reset()
