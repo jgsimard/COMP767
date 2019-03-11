@@ -142,6 +142,7 @@ def true_online_td_update(env, policy,
 
         weights = weights + learning_rate *(td_error + v - v_old) * eligibity_trace -learning_rate*(v - v_old)*x
         v_old = v_prime
+        x = x_prime
     return weights
 
 
