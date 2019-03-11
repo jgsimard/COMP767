@@ -27,9 +27,10 @@ class TileCoding1D(LinearApproximationFunction):
         self.n_tilings = n_tilings
         self.tile_width = (bounds[1] - bounds[0]) / ((n_bins - 1) * n_tilings + 1) * n_tilings
         self.offset = self.tile_width / n_tilings
+        self.size = size = n_bins * n_tilings
 
     def get_feature_vector(self, s):
-        feature_vector = np.zeros(self.n_bins * self.n_tilings)
+        feature_vector = np.zeros(self.size)
         for tiling in range(self.n_tilings):
             s_prime = s + tiling * self.offset
             bin_index = np.floor(s_prime / self.tile_width).astype(int)
@@ -45,9 +46,10 @@ class TileCoding2D(LinearApproximationFunction):
                                     bounds_box.high[1] - bounds_box.low[1]]) * normalization_factor * 1.1 #if not problem in limit cases
         self.bounds = bounds_box
         self.offset = self.tile_shape / n_tilings
+        self.size = size = n_bins**2 * n_tilings
 
     def get_feature_vector(self, s):
-        feature_vector = np.zeros(self.n_bins**2 * self.n_tilings)
+        feature_vector = np.zeros(self.size)
         for tiling in range(self.n_tilings):
             s_prime = s + tiling * self.offset - self.bounds.low
             bin_index = np.floor(s_prime / self.tile_shape).astype(int)

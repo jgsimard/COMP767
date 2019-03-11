@@ -94,9 +94,11 @@ def identity(observation):
     return observation
 
 
-def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_return, approximation_function, weights, eligibity_trace = None, state_from_observation_function = identity):
+def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_return, approximation_function, weights, state_from_observation_function = identity):
     observation = env.reset()
     state = state_from_observation_function(observation)
+
+    eligibity_trace = np.zeros_like(weights)
 
     done = False
     while not done:
@@ -107,8 +109,32 @@ def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_re
         td_error = reward + discount_rate * approximation_function(state_prime, weights) - approximation_function(state, weights)
         weights = weights + learning_rate * td_error * eligibity_trace
         state = state_prime
+    return weights
 
+def true_online_td_update(env, policy, learning_rate, discount_rate, lambda_return, approximation_function, weights, state_from_observation_function = identity):
+    observation = env.reset()
+    state = state_from_observation_function(observation)
+    x = approximation_function.get_feature_vector(state)
 
+    eligibity_trace = np.zeros_like(weights)
+    v_old=0
+
+    done = False
+    while not done:
+        action = policy(env, state)
+        observation, reward, done, info = env.step(action)
+        state_prime = state_from_observation_function(observation)
+        x_prime = approximation_function.get_feature_vector(state_prime)
+
+        v = weights.T @ x
+        v_prime = weights.T @ x_prime
+
+        td_error = reward + discount_rate * v_prime - v
+        eligibity_trace = discount_rate * lambda_return * eligibity_trace + (1-learning_rate*discount_rate*lambda_return * eligibity_trace.T @ x) * x
+
+        weights = weights + learning_rate *(td_error + v - v_old) * eligibity_trace -learning_rate*(v - v_old)*x
+        v_old = v_prime
+    return weights
 
 
 #################
