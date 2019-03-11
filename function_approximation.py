@@ -54,3 +54,22 @@ class TileCoding2D(LinearApproximationFunction):
             bin_index = np.ravel_multi_index(bin_index, (self.n_bins, self.n_bins))
             feature_vector[tiling * self.n_bins**2 + bin_index] = 1
         return feature_vector
+
+class TileCodingND(LinearApproximationFunction):
+    def __init__(self, n_bins, n_tilings, bounds_box):
+        self.n_bins = n_bins
+        self.n_tilings = n_tilings
+        normalization_factor = n_tilings / ((n_bins - 1) * n_tilings + 1) * 1.1
+        self.tile_shape = np.array([high - low for high, low in zip(bounds_box.high, bounds_box.low)]) * normalization_factor
+        self.dim = len(self.tile_shape)
+        self.bounds = bounds_box
+        self.offset = self.tile_shape / n_tilings
+
+    def get_feature_vector(self, s):
+        feature_vector = np.zeros(self.n_bins**self.dim * self.n_tilings)
+        for tiling in range(self.n_tilings):
+            s_prime = s + tiling * self.offset - self.bounds.low
+            bin_index = np.floor(s_prime / self.tile_shape).astype(int)
+            bin_index = np.ravel_multi_index(bin_index, (self.n_bins, )*self.dim)
+            feature_vector[tiling * self.n_bins**self.dim + bin_index] = 1
+        return feature_vector
