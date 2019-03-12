@@ -45,3 +45,16 @@ class TileCoding(LinearApproximationFunction):
                 index_in_tiling = np.ravel_multi_index(index_in_tiling, (self.n_bins,)*self.dims)
             feature_vector[tiling * self.tiling_size + index_in_tiling] = 1
         return feature_vector
+
+
+if __name__ == "__main__":
+    import gym
+    low = np.array([0.0, 0.0])
+    high = np.array([1.0, 1.0])
+    observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
+    tile_coding = TileCoding(n_bins=2, n_tilings=2, observation_space=observation_space)
+    ij = [0.1, 0.5, 0.9]
+    for i in ij:
+        for j in ij:
+            print(i,j, tile_coding.get_feature_vector([i,j]))
+    print(tile_coding.tile)
