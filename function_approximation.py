@@ -29,7 +29,6 @@ class TileCoding(LinearApproximationFunction):
         normalization = n_tilings / ((n_bins - 1) * n_tilings + 1)
         self.tile = np.array([high - low for high, low in zip(observation_space.high, observation_space.low)]) * normalization
 
-        # print(self.tile, observation_space, observation_space.shape[0])
         self.observation_space = observation_space
         self.offset = self.tile / n_tilings
         self.tiling_size = n_bins**self.dims
