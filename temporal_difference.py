@@ -1,106 +1,43 @@
 import numpy as np
-
-#################
-# Policy
-#################
-class Policy:
-    def __init__(self, n):
-        self.n = n
-
-    def get_action(self, q):
-        pass
-
-    def get_action_probability_distribution(self, q, s):
-        pass
-
-
-class EpsilonGreedy(Policy):
-    def __init__(self, epsilon=0.1, n=6):
-        super().__init__(n)
-        self.epsilon = epsilon
-
-    def get_action(self, q, s):
-        p = np.random.rand(1)
-        if p < self.epsilon:
-            a = np.random.randint(self.n)
-        else:
-            a = np.argmax(q[s])
-        return a
-
-    def get_action_probability_distribution(self, q, s):
-        out = np.ones(self.n) * self.epsilon / self.n
-        out[np.argmax(q[s])] += 1 - self.epsilon
-        return out
-
-
-class Greedy(EpsilonGreedy):
-    def __init__(self, n=6):
-        super().__init__(epsilon=0, n=n)
-
-
-def softmax(x):
-    e_x = np.exp(x - np.max(x))
-    return e_x / np.sum(e_x)
-
-
-class SoftmaxExploration(Policy):
-    def __init__(self, temperature_factor=1, n=6):
-        super().__init__(n)
-        self.temperature_factor = temperature_factor
-
-    def get_action(self, q, s):
-        return np.random.choice(self.n, 1, p=self.get_action_probability_distribution(q, s))[0]
-
-    def get_action_probability_distribution(self, q, s):
-        return softmax(q[s] / self.temperature_factor)
-
-
-#################
-# HISTORY
-#################
-
-class History:
-    def __init__(self, s=None, a=None, discount_rate=0.9):
-        self.states = []
-        self.actions = []
-        self.rewards = []
-        self.t = 0
-        self.g = 0
-        self.discount_rate = discount_rate
-
-        self.register(s, a)
-
-    def register(self, s=None, a=None, r=None):
-        if s != None:
-            self.states.append(s)
-        if a != None:
-            self.actions.append(a)
-        if r != None:
-            self.rewards.append(r)
-            self.t += 1
-            self.g += r * (self.discount_rate ** self.t)
-
-    def undiscounted_return(self):
-        return np.sum(self.rewards)
-
-    def discounted_return(self):
-        return self.g
+from agent import Agent, ApproximateAgent
+from utils import  History
 
 
 #################
 # PREDICTION
 #################
-def identity(observation):
-    return observation
+class SemiGradientTD(ApproximateAgent):
+    def __init__(self, env, discount_rate, learning_rate, lambda_rate, approximation_function, policy, state_from_observation_function = lambda x:x, reset_function = None):
+        super().__init__(env, discount_rate, learning_rate, approximation_function, policy, state_from_observation_function)
+        self.lambda_rate = lambda_rate
+        self.eligibity_trace = np.zeros_like(self.weights)
+        self.reset_function = reset_function
+
+
+    def episode(self, env):
+        self.eligibity_trace = np.zeros_like(self.weights)
+        observation = env.reset() if self.reset_function == None else self.reset_function(env)
+        state = self.state_from_observation_function(observation)
+        done = False
+        while not done:
+            action = self.policy(env, state)
+            observation, reward, done, info = env.step(action)
+            state_prime = self.state_from_observation_function(observation)
+            self.eligibity_trace = self.discount_rate * self.lambda_rate * self.eligibity_trace + self.approximation_function.grad(state, self.weights)
+            td_error = reward + self.discount_rate * self.approximation_function(state_prime, self.weights) - self.approximation_function(state, self.weights)
+            self.weights += self.learning_rate * td_error * self.eligibity_trace
+            state = state_prime
+
+    def get_value(self, state):
+        return self.approximation_function(state, self.weights)
 
 
 def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_return,
                             approximation_function, weights,
-                            state_from_observation_function = identity,
+                            state_from_observation_function = lambda x:x,
                             reset_function = None):
     observation = env.reset() if reset_function == None else reset_function(env)
     state = state_from_observation_function(observation)
-
     eligibity_trace = np.zeros_like(weights)
 
     done = False
@@ -115,10 +52,46 @@ def semi_gradient_td_update(env, policy, learning_rate, discount_rate, lambda_re
     return weights
 
 
+class TrueOnlineTD(ApproximateAgent):
+    def __init__(self, env, discount_rate, learning_rate, lambda_rate, approximation_function, policy, state_from_observation_function = lambda x:x, reset_function = None):
+        super().__init__(env, discount_rate, learning_rate, approximation_function, policy, state_from_observation_function)
+        self.lambda_rate = lambda_rate
+        self.eligibity_trace = np.zeros_like(self.weights)
+        self.reset_function = reset_function
+
+
+    def episode(self, env):
+        observation = env.reset() if self.reset_function == None else self.reset_function(env)
+        state = self.state_from_observation_function(observation)
+        self.eligibity_trace = np.zeros_like(self.weights)
+        x = self.approximation_function.get_feature_vector(state)
+        v_old = 0
+        done = False
+        while not done:
+            action = self.policy(env, state)
+            observation, reward, done, info = env.step(action)
+            state_prime = self.state_from_observation_function(observation)
+            x_prime = self.approximation_function.get_feature_vector(state_prime)
+
+            v = self.weights.T @ x
+            v_prime = self.weights.T @ x_prime
+
+            td_error = reward + self.discount_rate * v_prime - v
+            self.eligibity_trace = self.discount_rate * self.lambda_rate * self.eligibity_trace + (
+                        1 - self.learning_rate * self.discount_rate * self.lambda_rate * self.eligibity_trace.T @ x) * x
+
+            self.weights += self.learning_rate * (td_error + v - v_old) * self.eligibity_trace - self.learning_rate * (
+                        v - v_old) * x
+            v_old = v_prime
+            x = x_prime
+
+    def get_value(self, state):
+        return self.approximation_function(state, self.weights)
+
 def true_online_td_update(env, policy,
                           learning_rate, discount_rate, lambda_return,
                           approximation_function, weights,
-                          state_from_observation_function = identity,
+                          state_from_observation_function = lambda x:x,
                           reset_function = None):
     observation = env.reset() if reset_function == None else reset_function(env)
     state = state_from_observation_function(observation)
@@ -150,46 +123,80 @@ def true_online_td_update(env, policy,
 # CONTROL
 #################
 
-def sarsa_update(env, policy, q, learning_rate, discount_rate):
-    s = env.reset()
-    a = policy.get_action(q, s)
-    history = History(s, a)
-    done = False
-    while not done:
+class SARSA(Agent):
+    def __init__(self, env, discount_rate, learning_rate, policy, state_from_observation_function = lambda x:x):
+        super().__init__(env, discount_rate, learning_rate, policy, state_from_observation_function)
+
+    def learn(self, s, a, r, s_prime, a_prime):
+        self.qtable[s][a] += self.learning_rate * (r + self.discount_rate * self.qtable[s_prime][a_prime] - self.qtable[s][a])
+
+    def update(self, env, s, a):
         observation, reward, done, info = env.step(a)
-        s_prime = observation
-        a_prime = policy.get_action(q, s_prime)
-        q[s][a] = q[s][a] + learning_rate * (reward + discount_rate * q[s_prime][a_prime] - q[s][a])
+        s_prime = self.state_from_observation_function(observation)
+        a_prime = self.policy.get_action(self.qtable, s_prime)
+        self.learn(s, a, reward, s_prime, a_prime)
         s = s_prime
         a = a_prime
-        history.register(s, a, reward)
-    return history
+        return s, a, reward, done
+
+    def episode(self, env):
+        s = env.reset()
+        a = self.policy.get_action(self.qtable, s)
+        history = History(s, a)
+        done = False
+        while not done:
+            s, a, reward, done = self.update(env, s, a)
+            history.register(s, a, reward)
+        return history
 
 
-def qlearning_update(env, policy, q, learning_rate, discount_rate):
-    s = env.reset()
-    history = History(s)
-    done = False
-    while not done:
-        a = policy.get_action(q, s)
+class QLearning(Agent):
+    def __init__(self, env, discount_rate, learning_rate, policy, state_from_observation_function = lambda x:x):
+        super().__init__(env, discount_rate, learning_rate, policy, state_from_observation_function)
+
+    def learn(self, s, a, r, s_prime):
+        self.qtable[s][a] += self.learning_rate * (r + self.discount_rate * self.qtable[s_prime][np.argmax(self.qtable[s_prime])] - self.qtable[s][a])
+
+    def update(self, env, s):
+        a = self.policy.get_action(self.qtable, s)
         observation, reward, done, info = env.step(a)
-        s_prime = observation
-        q[s][a] = q[s][a] + learning_rate * (reward + discount_rate * q[s_prime][np.argmax(q[s_prime])] - q[s][a])
+        s_prime = self.state_from_observation_function(observation)
+        self.learn(s, a, reward, s_prime)
         s = s_prime
-        history.register(s, a, reward)
-    return history
+        return s, a, reward, done
+
+    def episode(self, env):
+        s = env.reset()
+        history = History(s)
+        done = False
+        while not done:
+            s, a, reward, done = self.update(env, s)
+            history.register(s, a, reward)
+        return history
 
 
-def expected_sarsa_update(env, policy, q, learning_rate, discount_rate):
-    s = env.reset()
-    history = History(s)
-    done = False
-    while not done:
-        a = policy.get_action(q, s)
+class Expected_SARSA(Agent):
+    def __init__(self, env, discount_rate, learning_rate, policy, state_from_observation_function=lambda x: x):
+        super().__init__(env, discount_rate, learning_rate, policy, state_from_observation_function)
+
+    def learn(self, s, a, r, s_prime):
+        expectation = np.sum(self.policy.get_action_probability_distribution(self.qtable, s_prime) * self.qtable[s_prime])
+        self.qtable[s][a] += self.learning_rate * (r + self.discount_rate * expectation - self.qtable[s][a])
+
+    def update(self, env, s):
+        a = self.policy.get_action(self.qtable, s)
         observation, reward, done, info = env.step(a)
-        s_prime = observation
-        expectation = np.sum(policy.get_action_probability_distribution(q, s_prime) * q[s_prime])
-        q[s][a] = q[s][a] + learning_rate * (reward + discount_rate * expectation - q[s][a])
+        s_prime = self.state_from_observation_function(observation)
+        self.learn(s, a, reward, s_prime)
         s = s_prime
-        history.register(s, a, reward)
-    return history
+        return s, a, reward, done
+
+    def episode(self, env):
+        s = env.reset()
+        history = History(s)
+        done = False
+        while not done:
+            s, a, reward, done = self.update(env, s)
+            history.register(s, a, reward)
+        return history
+
