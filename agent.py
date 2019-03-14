@@ -12,7 +12,7 @@ class Agent:
 
 class DiscreteAgent(Agent):
     def __init__(self, env, discount_rate, learning_rate, policy, state_from_observation_function = lambda x:x):
-        super().__init__(env, discount_rate, learning_rate, policy, state_from_observation_function = lambda x:x)
+        super().__init__(env, discount_rate, learning_rate, policy, state_from_observation_function)
         self.qtable = {state: np.zeros(env.action_space.n) for state in range(env.observation_space.n)}
 
 class ApproximateAgent(Agent):
