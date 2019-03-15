@@ -46,3 +46,10 @@ class SoftmaxExploration(Policy):
 
     def get_action_probability_distribution(self, q, s):
         return softmax(q[s] / self.temperature_factor)
+
+
+class ApproximatePolicy:
+    def __init__(self, approximate_function):
+        self.approximate_function = approximate_function
+
+
