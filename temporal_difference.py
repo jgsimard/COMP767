@@ -72,9 +72,9 @@ class TrueOnlineTD(ApproximateAgent):
 #################
 
 class TrueOnlineSARSA(ApproximateAgent):
-    def __init__(self, env, discount, learning_rate, lambda_rate, approximation_function, policy = None, state_from_observation_function = lambda x:x, reset_function = None):
+    def __init__(self, env, discount, learning_rate, trace_decay_rate, approximation_function, policy = None, state_from_observation_function = lambda x:x, reset_function = None):
         super().__init__(env, discount, learning_rate, approximation_function, policy, state_from_observation_function)
-        self.lambda_rate = lambda_rate
+        self.trace_decay_rate = trace_decay_rate
         self.reset_function = reset_function
 
 
@@ -95,7 +95,7 @@ class TrueOnlineSARSA(ApproximateAgent):
 
     def episode(self, env):
         if self.policy == None:
-            self.policy = self.policy_softmax
+            self.policy = self.policy_test
         observation = env.reset() if self.reset_function == None else self.reset_function(env)
         state = self.state_from_observation(observation)
         action = self.policy(env, state)
@@ -112,7 +112,7 @@ class TrueOnlineSARSA(ApproximateAgent):
             q = self.weights.T @ x
             q_prime = self.weights.T @ x_prime
             td_error = reward + self.discount_rate * q_prime - q
-            z = self.discount_rate * self.lambda_rate * z + (1 - self.learning_rate * self.discount_rate * self.lambda_rate * z.T @ x) * x
+            z = self.discount_rate * self.trace_decay_rate * z + (1 - self.learning_rate * self.discount_rate * self.trace_decay_rate * z.T @ x) * x
             self.weights += self.learning_rate * (td_error + q - q_old) * z - self.learning_rate * (q - q_old) * x
             q_old = q_prime
             x = x_prime
@@ -122,58 +122,6 @@ class TrueOnlineSARSA(ApproximateAgent):
             #     break
         return t
 
-class SemiGradientSARSA(ApproximateAgent):
-    def __init__(self, env, discount_rate, learning_rate, lambda_rate, approximation_function, policy = None, state_from_observation_function = lambda x:x, reset_function = None):
-        super().__init__(env, discount_rate, learning_rate, approximation_function, policy, state_from_observation_function)
-        self.lambda_rate = lambda_rate
-        self.eligibity_trace = np.zeros_like(self.weights)
-        self.reset_function = reset_function
-
-
-    def policy_epsilon_greedy(self, env, state):
-        epsilon = 0.9
-        p = np.random.rand(1)
-        if p < epsilon:
-            return self.policy_greedy(env, state)
-        else:
-            return np.random.randint(self.FA.action_space.n)
-
-    def policy_greedy(self, env, state):
-        q = [self.weights.T @ self.FA.get_feature_vector(state, action) for action in
-             range(self.FA.action_space.n)]
-        return np.argmax(q)
-
-
-    def episode(self, env):
-        if self.policy == None:
-            self.policy = self.policy_epsilon_greedy
-        observation = env.reset() if self.reset_function == None else self.reset_function(env)
-        state = self.state_from_observation(observation)
-        action = self.policy(env, state)
-        t = 0
-        while not done:
-            observation, reward, done, info = env.step(action)
-            state_prime = self.state_from_observation(observation)
-            q = self.weights.T @ self.FA.get_feature_vector()
-            grad = self.FA.grad(state, self.weights)
-            if done:
-                self.weights += self.learning_rate * (r - q)*grad
-                break
-
-            action_prime = self.policy(env, state_prime)
-            q_prime = self.FA(state, self.weights)
-            x_prime = self.FA.get_feature_vector(state_prime, action_prime)
-            q = self.weights.T @ x
-            q_prime = self.weights.T @ x_prime
-            td_error = reward + self.discount_rate * q_prime - q
-            self.eligibity_trace = self.discount_rate * self.lambda_rate * self.eligibity_trace + (
-                    1 - self.learning_rate * self.discount_rate * self.lambda_rate * self.eligibity_trace.T @ x) * x
-            self.weights += self.learning_rate * (td_error + q - q_old) * self.eligibity_trace - self.learning_rate * (q - q_old) * x
-            q_old = q_prime
-            x = x_prime
-            action = action_prime
-            t += 1
-        return t
 
 class SARSA(DiscreteAgent):
     def __init__(self, env, discount_rate, learning_rate, policy, state_from_observation_function = lambda x:x):

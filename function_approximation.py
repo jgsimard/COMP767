@@ -65,36 +65,6 @@ class TileCoding(LinearApproximationFunction):
         return feature_vector
 
 
-class TileCodingDiscreteAction(LinearApproximationFunction):
-    def __init__(self, n_bins, n_tilings, observation_space, action_space):
-        self.dims = observation_space.shape[0]
-        self.n_bins = n_bins
-        self.n_tilings = n_tilings
-        normalization = n_tilings / ((n_bins - 1) * n_tilings + 1)
-        self.tile = np.array([high - low for high, low in zip(observation_space.high, observation_space.low)]) * normalization
-
-        self.offset_base_position = - observation_space.low
-        self.action_space = action_space
-
-        self.observation_space = observation_space
-        self.offset = self.tile / n_tilings
-        self.tiling_size = n_bins**self.dims
-        self.size = self.tiling_size * n_tilings + self.action_space.n
-        self.size_encoding = self.tiling_size * n_tilings
-
-    def get_feature_vector(self, s, a):
-        feature_vector = np.zeros(self.size)
-        feature_vector[self.size_encoding + a] = 1
-        for tiling in range(self.n_tilings):
-            s_prime = s + tiling * self.offset + self.offset_base_position
-            index_in_tiling = np.floor(s_prime / self.tile).astype(int)
-            index_in_tiling[index_in_tiling == self.n_bins] = self.n_bins - 1 #for cases at the edge
-            if len(index_in_tiling) > 1:
-                index_in_tiling = np.ravel_multi_index(index_in_tiling, (self.n_bins,)*self.dims)
-            feature_vector[tiling * self.tiling_size + index_in_tiling] = 1
-        return feature_vector
-
-
 if __name__ == "__main__":
     import gym
     low = np.array([0.0, 0.0])
