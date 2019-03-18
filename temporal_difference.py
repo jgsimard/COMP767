@@ -7,14 +7,13 @@ from utils import  History, softmax
 # PREDICTION
 #################
 class SemiGradientTD(ApproximateAgent):
-    def __init__(self, env, discount_rate, learning_rate, lambda_rate, approximation_function, policy, state_from_observation_function = lambda x:x, reset_function = None):
+    def __init__(self, env, discount_rate, learning_rate, trace_decay_rate, approximation_function, policy, state_from_observation_function = lambda x:x, reset_function = None):
         super().__init__(env, discount_rate, learning_rate, approximation_function, policy, state_from_observation_function)
-        self.lambda_rate = lambda_rate
-        self.eligibity_trace = np.zeros_like(self.weights)
+        self.trace_decay_rate = trace_decay_rate
         self.reset_function = reset_function
 
     def episode(self, env):
-        self.eligibity_trace = np.zeros_like(self.weights)
+        eligibity_trace = np.zeros_like(self.weights)
         observation = env.reset() if self.reset_function == None else self.reset_function(env)
         state = self.state_from_observation(observation)
         done = False
@@ -22,49 +21,48 @@ class SemiGradientTD(ApproximateAgent):
             action = self.policy(env, state)
             observation, reward, done, info = env.step(action)
             state_prime = self.state_from_observation(observation)
-            self.eligibity_trace = self.discount_rate * self.lambda_rate * self.eligibity_trace + self.FA.grad(state, self.weights)
-            td_error = reward + self.discount_rate * self.FA(state_prime, self.weights) - self.FA(state, self.weights)
-            self.weights += self.learning_rate * td_error * self.eligibity_trace
+            eligibity_trace = self.discount_rate * self.trace_decay_rate * eligibity_trace + self.FA.get_state_grad(state)
+            td_error = reward + self.discount_rate * self.FA.get_state_value(state_prime, self.weights) - self.FA.get_state_value(state, self.weights)
+            self.weights += self.learning_rate * td_error * eligibity_trace
             state = state_prime
 
     def get_value(self, state):
-        return self.FA(state, self.weights)
+        return self.FA.get_state_value(state, self.weights)
 
 
 class TrueOnlineTD(ApproximateAgent):
-    def __init__(self, env, discount_rate, learning_rate, lambda_rate, approximation_function, policy, state_from_observation_function = lambda x:x, reset_function = None):
+    def __init__(self, env, discount_rate, learning_rate, trace_decay_rate, approximation_function, policy, state_from_observation_function = lambda x:x, reset_function = None):
         super().__init__(env, discount_rate, learning_rate, approximation_function, policy, state_from_observation_function)
-        self.lambda_rate = lambda_rate
-        self.eligibity_trace = np.zeros_like(self.weights)
+        self.trace_decay_rate = trace_decay_rate
         self.reset_function = reset_function
 
     def episode(self, env):
         observation = env.reset() if self.reset_function == None else self.reset_function(env)
         state = self.state_from_observation(observation)
-        self.eligibity_trace = np.zeros_like(self.weights)
-        x = self.FA.get_feature_vector(state)
+        x = self.FA.get_state_feature_vector(state)
+        eligibity_trace = np.zeros_like(self.weights)
         v_old = 0
         done = False
         while not done:
             action = self.policy(env, state)
             observation, reward, done, info = env.step(action)
             state_prime = self.state_from_observation(observation)
-            x_prime = self.FA.get_feature_vector(state_prime)
+            x_prime = self.FA.get_state_feature_vector(state_prime)
 
             v = self.weights.T @ x
             v_prime = self.weights.T @ x_prime
 
             td_error = reward + self.discount_rate * v_prime - v
-            self.eligibity_trace = self.discount_rate * self.lambda_rate * self.eligibity_trace + (
-                        1 - self.learning_rate * self.discount_rate * self.lambda_rate * self.eligibity_trace.T @ x) * x
+            eligibity_trace = self.discount_rate * self.trace_decay_rate * eligibity_trace + (
+                    1 - self.learning_rate * self.discount_rate * self.trace_decay_rate * eligibity_trace.T @ x) * x
 
-            self.weights += self.learning_rate * (td_error + v - v_old) * self.eligibity_trace - self.learning_rate * (
+            self.weights += self.learning_rate * (td_error + v - v_old) * eligibity_trace - self.learning_rate * (
                         v - v_old) * x
             v_old = v_prime
             x = x_prime
 
     def get_value(self, state):
-        return self.FA(state, self.weights)
+        return self.FA.get_state_value(state, self.weights)
 
 
 #################
@@ -86,11 +84,12 @@ class TrueOnlineSARSA(ApproximateAgent):
             return np.random.randint(self.FA.action_space.n)
 
     def policy_greedy(self, env, state):
-        q = [self.weights.T @ self.FA.get_feature_vector(state, action) for action in range(self.FA.action_space.n)]
+        q = [self.weights.T @ self.FA.get_state_action_feature_vector(state, action) for action in range(self.FA.action_space.n)]
         return np.argmax(q)
 
     def policy_softmax(self, env, state):
-        a = np.random.choice(self.FA.action_space.n, 1, p=softmax([self.weights.T @ self.FA.get_feature_vector(state, action) for action in range(self.FA.action_space.n)]))[0]
+        p = softmax([self.weights.T @ self.FA.get_state_action_feature_vector(state, action) for action in range(self.FA.action_space.n)])
+        a = np.random.choice(self.FA.action_space.n, 1, p=p)[0]
         return a
 
     def episode(self, env):
@@ -99,7 +98,7 @@ class TrueOnlineSARSA(ApproximateAgent):
         observation = env.reset() if self.reset_function == None else self.reset_function(env)
         state = self.state_from_observation(observation)
         action = self.policy(env, state)
-        x = self.FA.get_feature_vector(state, action)
+        x = self.FA.get_state_action_feature_vector(state, action)
         z = np.zeros_like(self.weights)
         q_old = 0
         done = False
@@ -108,7 +107,7 @@ class TrueOnlineSARSA(ApproximateAgent):
             observation, reward, done, info = env.step(action)
             state_prime = self.state_from_observation(observation)
             action_prime = self.policy(env, state_prime)
-            x_prime = self.FA.get_feature_vector(state_prime, action_prime)
+            x_prime = self.FA.get_state_action_feature_vector(state_prime, action_prime)
             q = self.weights.T @ x
             q_prime = self.weights.T @ x_prime
             td_error = reward + self.discount_rate * q_prime - q

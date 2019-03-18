@@ -3,23 +3,49 @@ import gym
 
 
 class ApproximationFunction:
-    def __call__(self, s, w):
+    #feature vector
+    def get_state_feature_vector(self, s):
         pass
 
-    def grad(self, s, w):
+    def get_state_action_feature_vector(self, s):
+        pass
+
+    #value
+    def get_state_value(self, s, w):
+        pass
+
+    def get_state_action_value(self, s, a, w):
+        pass
+
+    #grad
+    def get_state_grad(self, s, w):
+        pass
+
+    def get_state_action_grad(self, s, a, w):
         pass
 
 
 class LinearApproximationFunction:
-    def get_feature_vector(self, s):
+    def get_state_feature_vector(self, s):
         pass
 
-    def  __call__(self, s, w, a):
-        feature_vector = self.get_feature_vector(s)
-        return  w.T @ feature_vector
+    def get_state_action_feature_vector(self, s, a):
+        pass
 
-    def grad(self, s, w):
-        return self.get_feature_vector(s)
+    def get_state_value(self, s, w):
+        feature_vector = self.get_state_feature_vector(s)
+        return w.T @ feature_vector
+
+    def get_state_action_value(self, s, a, w):
+        feature_vector = self.get_state_action_feature_vector(s, a)
+        return w.T @ feature_vector
+
+    def get_state_grad(self, s):
+        return self.get_state_feature_vector(s)
+
+    def get_state_action_grad(self, s, a):
+        return self.get_state_action_feature_vector(s, a)
+
 
 
 class TileCoding(LinearApproximationFunction):
@@ -48,22 +74,23 @@ class TileCoding(LinearApproximationFunction):
         self.tiling_size = n_bins**self.dims
         self.size = self.tiling_size * n_tilings
 
-    def get_feature_vector(self, s, a = -1):
-        if a != -1:
-            if isinstance(self.action_space, gym.spaces.box.Box):
-                s = np.concatenate((s, a))
-            else:
-                s = np.concatenate((s, [a]))
+    def get_state_action_feature_vector(self, s, a):
+        if isinstance(self.action_space, gym.spaces.box.Box):
+            s_prime = np.concatenate((s, a))
+        else:
+            s_prime = np.concatenate((s, [a]))
+        return self.get_state_feature_vector(s_prime)
+
+    def get_state_feature_vector(self, s):
         feature_vector = np.zeros(self.size)
         for tiling in range(self.n_tilings):
             s_prime = s + tiling * self.offset + self.offset_base_position
             index_in_tiling = np.floor(s_prime / self.tile).astype(int)
-            index_in_tiling[index_in_tiling == self.n_bins] = self.n_bins - 1 #for cases at the edge
+            index_in_tiling[index_in_tiling == self.n_bins] = self.n_bins - 1  # for cases at the edge
             if len(index_in_tiling) > 1:
-                index_in_tiling = np.ravel_multi_index(index_in_tiling, (self.n_bins,)*self.dims)
+                index_in_tiling = np.ravel_multi_index(index_in_tiling, (self.n_bins,) * self.dims)
             feature_vector[tiling * self.tiling_size + index_in_tiling] = 1
         return feature_vector
-
 
 if __name__ == "__main__":
     import gym
@@ -74,5 +101,5 @@ if __name__ == "__main__":
     ij = [0.1, 0.5, 0.9]
     for i in ij:
         for j in ij:
-            print(i,j, tile_coding.get_feature_vector([i,j]))
+            print(i,j, tile_coding.get_state_feature_vector([i,j]))
     print(tile_coding.tile)
