@@ -141,10 +141,11 @@ class ProjectEnv(gym.Env):
 
         return new_bb
 
-    #TODO : I chose to give the grond truch box with the biggest IoU if multiple target
+    #I chose to give the grond truch box with the biggest IoU if multiple target
     def get_ground_truth_bb(self):
         ious = [intersection_over_union(self.current_bb, ground_truth_bb) for ground_truth_bb in self.full_scaled_label_bb]
-        return max(ious)
+        ground_truth_bb_max_iou = self.full_scaled_label_bb[np.argmax(ious)]
+        return ground_truth_bb_max_iou
 
     #TODO
     def get_reward(self, new_bb, action):
@@ -161,8 +162,16 @@ class ProjectEnv(gym.Env):
         done = False
         if self.t >= self.max_step :
             done = True
-
-
+        new_bb = self.get_next_bb(self.current_bb, action)
+        if action < self.action_space.n -1:
+            reward = self.get_reward(new_bb, action)
+        else:
+            self.add_ior(self.full_scaled_img, self.current_bb)
+            self.full_scaled_label_bb.remove(self.get_ground_truth_bb())
+            if len(self.full_scaled_label_bb) == 0:
+                done = True
+            reward = self.get_reward(self.current_bb, action)
+        self.current_bb = new_bb
         obs = self.get_obs()
 
         return obs, reward, done, {}
@@ -195,3 +204,5 @@ class ProjectEnv(gym.Env):
         self.full_scaled_label = scaled_label
         self.full_scaled_label_bb = self.get_labels_bb(self.full_scaled_label)
         self.current_bb = self.init_bb()
+
+        self.past_iou = intersection_over_union(self.current_bb, self.get_ground_truth_bb())
