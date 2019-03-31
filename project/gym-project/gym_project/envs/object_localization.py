@@ -79,7 +79,10 @@ class ProjectEnv(gym.Env):
         cv2.rectangle(img, (bb.x1, bb.y1 + delta_y), (bb.x2, bb.y2 - delta_y), (0, 0, 0), -1)
 
     def init_bb(self):
-        return BoundingBox(0,0,self.output_image_size, self.output_image_size)
+        return BoundingBox(self.context_buffer,
+                           self.context_buffer,
+                           self.output_image_size-self.context_buffer,
+                           self.output_image_size-self.context_buffer)
 
     def get_obs(self):
         y1 = max(self.current_bb.y1 - self.context_buffer, 0)
@@ -97,7 +100,7 @@ class ProjectEnv(gym.Env):
         delta_x_right = min(self.output_image_size - bb.x2, a_w)
         delta_x_left = -max(bb.x1 - a_w, 0)
         delta_y_up = -max(bb.y1 - a_h, 0)
-        delta_y_down = max(self.output_image_size - bb.y2, a_h)
+        delta_y_down = min(self.output_image_size - bb.y2, a_h)
 
         if action == 0:  # right
             new_bb.x1 += delta_x_right
