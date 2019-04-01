@@ -1,1 +1,1 @@
-from gym_gridworld.envs.gridworld import GridWorld
+from gym_project.envs.object_localization import ProjectEnv
