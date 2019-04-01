@@ -98,13 +98,14 @@ class ProjectEnv(gym.Env):
         print("y1, y2, x1, x2", y1, y2, x1, x2)
         real_obs = self.resize_img(self.full_scaled_img[y1:y2, x1:x2, :])
 
-        fake_img = self.full_scaled_img.copy()
-        self.rectangle_at_bb_on_img(fake_img, self.current_bb)
-        for bb in self.full_scaled_label_bb:
-            self.rectangle_at_bb_on_img(fake_img, bb, color=(255, 0, 0))
-        fake_obs = self.resize_img(fake_img[y1:y2, x1:x2, :])
+        return real_obs
 
-        return fake_obs
+        # fake_img = self.full_scaled_img.copy()
+        # self.rectangle_at_bb_on_img(fake_img, self.current_bb)
+        # for bb in self.full_scaled_label_bb:
+        #     self.rectangle_at_bb_on_img(fake_img, bb, color=(255, 0, 0))
+        # fake_obs = self.resize_img(fake_img[y1:y2, x1:x2, :])
+        # return fake_obs
 
     def get_next_bb(self, bb, action):
         new_bb = bb
@@ -157,8 +158,8 @@ class ProjectEnv(gym.Env):
         else:
             new_bb = self.init_bb()
 
-        print(f"a_w:{a_w}, a_h:{a_h}, delta_x_right:{delta_x_right}, delta_x_left:{delta_x_left}, delta_y_up:{delta_y_up}, delta_y_down:{delta_y_down}")
-        print("new_bb", bb)
+        # print(f"a_w:{a_w}, a_h:{a_h}, delta_x_right:{delta_x_right}, delta_x_left:{delta_x_left}, delta_y_up:{delta_y_up}, delta_y_down:{delta_y_down}")
+        # print("new_bb", bb)
         return new_bb
 
     #I chose to give the grond truch box with the biggest IoU if multiple target
@@ -169,8 +170,8 @@ class ProjectEnv(gym.Env):
 
     def get_transformation_action_reward(self, new_bb, action):
         new_iou = intersection_over_union(self.get_ground_truth_bb(), new_bb)
-        reward = np.sign(new_iou - self.past_iou)
-        print(f"self.past_iou:{self.past_iou}, new_iou{new_iou}")
+        reward = 1 if new_iou > self.past_iou else -1
+        # print(f"self.past_iou:{self.past_iou}, new_iou{new_iou}")
         self.past_iou = new_iou
         return reward
 
@@ -217,13 +218,16 @@ class ProjectEnv(gym.Env):
         image, label = self.voc_dataset[ np.random.choice(self.detected_class_indexes)]
         scaled_image = self.resize_img(image.asnumpy())
 
-        x_factor = self.output_image_size / image.shape[0]
-        y_factor = self.output_image_size / image.shape[1]
+        y_factor = self.output_image_size / image.shape[0]
+        x_factor = self.output_image_size / image.shape[1]
         scaled_label = self.filter_labels(label) # to keep only the label of the desired detected class
         scaled_label[:, 0] = (scaled_label[:, 0] * x_factor).astype(int)
         scaled_label[:, 2] = (scaled_label[:, 2] * x_factor).astype(int)
         scaled_label[:, 1] = (scaled_label[:, 1] * y_factor).astype(int)
         scaled_label[:, 3] = (scaled_label[:, 3] * y_factor).astype(int)
+        # print("image.shape", image.shape)
+        # print("label", label)
+        # print("scaled_label", scaled_label)
 
         self.full_scaled_img = scaled_image
         self.full_scaled_label = scaled_label
