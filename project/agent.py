@@ -66,17 +66,17 @@ class Agent:
         self.eps_end = eps_end
         self.eps_decay = eps_decay
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.pretrained_cnn = self.get_pretrained_cnn()
 
 
         self.memory_size = memory_size
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.policy_q_net = DeepQNetwork(n_past_action_to_remember).to(self.device)
         self.target_q_net = DeepQNetwork(n_past_action_to_remember).to(self.device)
         self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
         self.target_q_net.eval()
 
-        self.optimizer = optim.RMSprop(self.policy_q_net.parameters())
+        self.optimizer = optim.Adam(self.policy_q_net.parameters())
         self.memory = ReplayMemory(memory_size)
 
         self.t = 0
@@ -91,7 +91,7 @@ class Agent:
         # make this model not trainable, so that is simply does features extraction
         for param in pretrained_cnn.parameters():
             param.requires_grad = False
-        return pretrained_cnn
+        return pretrained_cnn.to(self.device)
 
     def get_greedy_action(self, state):
         return self.policy_q_net(state).max(1)[1].view(1, 1)
@@ -110,14 +110,14 @@ class Agent:
 
         if len(self.memory) < self.batch_size:
             return
-        print("OPTIMIZING MODEL")
+        # print("OPTIMIZING MODEL")
 
         # batch of transistions to transitions of batch
         transitions = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*transitions))
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
+        reward_batch = torch.cat(batch.reward).float()
 
         # Mask of non-final states
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=self.device, dtype=torch.uint8)
@@ -144,7 +144,7 @@ class Agent:
         self.optimizer.step()
 
     def get_state_from_observation(self, obs):
-        obs_reshaped_for_cnn = torch.from_numpy(obs).permute(2,0,1).unsqueeze(0).float()/255
+        obs_reshaped_for_cnn = torch.from_numpy(obs).permute(2,0,1).unsqueeze(0).float().to(self.device)/255
         features = self.pretrained_cnn(obs_reshaped_for_cnn)
         return torch.cat((features, self.history.unsqueeze(0)), 1)
 
@@ -154,7 +154,7 @@ class Agent:
         self.history[action] = torch.tensor([1], device=self.device)
 
     def clear_history(self):
-        return torch.zeros(self.n_action * self.n_past_action_to_remember)
+        return torch.zeros(self.n_action * self.n_past_action_to_remember).to(self.device)
 
     def train_episode(self, env):
         t = 0
@@ -164,7 +164,6 @@ class Agent:
         past_state = state
         done = False
         while not done:
-            print(t)
             action = self.get_action(state)
             self.update_history(action)
             observation, reward, done, info = env.step(action)
@@ -175,15 +174,36 @@ class Agent:
 
             self.optimize_model()
             t += 1
-
         return t
 
     def train(self, env, nb_episode=100):
         episode_lenghts = []
         for episode in range(nb_episode):
-            print(f"Episode : {episode}")
             episode_lenght = self.train_episode(env)
             episode_lenghts.append(episode_lenght)
             if episode % self.target_update == 0:
                 self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
+            print(f"Episode : {episode}, len : {episode_lenght}")
         return episode_lenghts
+
+    def test_episode(self, env):
+        t = 0
+        self.history = self.clear_history()
+        imgs = []
+        actions=["reset"]
+        observation = env.reset()
+        imgs.append((observation))
+        state = self.get_state_from_observation(observation)
+        past_state = state
+        done = False
+        while not done:
+            action = self.get_action(state)
+            self.update_history(action)
+            observation, reward, done, info = env.step(action)
+            state = self.get_state_from_observation(observation)
+            past_state = state
+            t += 1
+            imgs.append((observation))
+            actions.append(env.action_index_to_names[action.item()])
+        return imgs, actions, t
+

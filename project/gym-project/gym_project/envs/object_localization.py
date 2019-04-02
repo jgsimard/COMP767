@@ -12,6 +12,8 @@ class BoundingBox:
         self.y2 = y2
 
     def area(self):
+        if self.x2 < self.x1 or self.y2 < self.y1:
+            return 0
         return (self.x2-self.x1) * (self.y2-self.y1)
 
     def __repr__(self):
@@ -22,8 +24,13 @@ def intersection_over_union(bb1, bb2):
     intersection_bb = BoundingBox(x1 = max(bb1.x1, bb2.x1),
                                   y1 = max(bb1.y1, bb2.y1),
                                   x2 = min(bb1.x2, bb2.x2),
-                                  y2 = min(bb2.y2, bb2.y2))
+                                  y2 = min(bb1.y2, bb2.y2))
     iou = intersection_bb.area()/(bb1.area() + bb2.area() - intersection_bb.area())
+    if iou > 1:
+        print("FAULTY IOU", iou)
+        print("bb1", bb1)
+        print("bb2", bb2)
+        print("intersection_bb", intersection_bb)
     return iou
 
 
@@ -33,8 +40,8 @@ class ProjectEnv(gym.Env):
                  alpha=0.2, max_step = 200, set_name = 'trainval'):
         self.max_step = max_step
         self.context_buffer = 16
-        self.trigger_reward = 10 #instead of 3
-        self.trigger_threshold = 0.5 #0.6 #can be 0.5 but the paper says 0.6
+        self.trigger_reward = 3 #instead of 3
+        self.trigger_threshold = 0.4 #0.6 #can be 0.5 but the paper says 0.6
         self.voc_dataset = gluoncv.data.VOCDetection(root=root, splits=[(2007, set_name)])
 
         self.detected_class = detected_class
@@ -51,6 +58,8 @@ class ProjectEnv(gym.Env):
         self.full_scaled_label = None
         self.current_img = None
         self.past_iou = None
+
+        self.action_index_to_names={0:"right", 1:"left", 2:"up", 3:"down", 4:"bigger", 5:"smaller", 6:"fatter", 7:"taller", 8:"trigger"}
 
         print(f"Environement initializatione done for class : {self.voc_dataset.classes[detected_class]}")
 
@@ -74,7 +83,7 @@ class ProjectEnv(gym.Env):
     def resize_img(self, img):
         return cv2.resize(img, (self.output_image_size, self.output_image_size))
 
-    def add_ior(self, img, bb, f=5): #ior = inhibition of return
+    def add_ior(self, img, bb, f=4): #ior = inhibition of return
         w = bb.x2 - bb.x1
         h = bb.y2 - bb.y1
         delta_x = int(w * (1 - 1 / f) / 2)
@@ -192,6 +201,7 @@ class ProjectEnv(gym.Env):
         if action < self.action_space.n -1:
             reward = self.get_transformation_action_reward(new_bb, action)
         else:
+            print(self.past_iou)
             reward = self.get_trigger_reward()
             self.add_ior(self.full_scaled_img, self.current_bb)
             self.full_scaled_label_bb.remove(self.get_ground_truth_bb())
