@@ -1,18 +1,11 @@
-import gym
-import math
 import random
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
 from collections import namedtuple
-from itertools import count
-from PIL import Image
 
+import math
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import torchvision.transforms as T
+import torch.optim as optim
 import torchvision.models as models
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
@@ -61,7 +54,8 @@ class DeepQNetwork(nn.Module):
 
 
 class Agent:
-    def __init__(self, env, target_update = 10, discout_rate=0.99, eps_start=0.9, eps_end=0.05, eps_decay=200, batch_size = 64, memory_size=1000, n_past_action_to_remember=10):
+    def __init__(self, env, target_update=10, discout_rate=0.99, eps_start=0.9, eps_end=0.05, eps_decay=200,
+                 batch_size=64, memory_size=1000, n_past_action_to_remember=10):
         self.target_update = target_update
         self.discount_rate = discout_rate
         self.n_action = env.action_space.n
@@ -73,6 +67,7 @@ class Agent:
         self.eps_decay = eps_decay
 
         self.pretrained_cnn = self.get_pretrained_cnn()
+
 
         self.memory_size = memory_size
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,11 +81,12 @@ class Agent:
 
         self.t = 0
         self.history = self.clear_history()
+        print("Agent initialization done")
 
     def get_pretrained_cnn(self):
         pretrained_cnn = models.vgg16(pretrained=True)
         # remove the last 3 layers to have 4096 ouput
-        pretrained_cnn.classifier = nn.Sequential(*list(self.pretrained_cnn.classifier.children())[:-3])
+        pretrained_cnn.classifier = nn.Sequential(*list(pretrained_cnn.classifier.children())[:-3])
 
         # make this model not trainable, so that is simply does features extraction
         for param in pretrained_cnn.parameters():
@@ -98,7 +94,7 @@ class Agent:
         return pretrained_cnn
 
     def get_greedy_action(self, state):
-        return self.policy_q_net(state).max(1)[1]  # .view(x,y)
+        return self.policy_q_net(state).max(1)[1].view(1, 1)
 
     def get_action(self, state):
         self.t += 1
@@ -108,34 +104,39 @@ class Agent:
                 return self.get_greedy_action(state)
 
         else:
-            return torch.tensor([[random.randrange(self.n_actions)]], device=self.device, dtype=torch.long)
+            return torch.tensor([[random.randrange(self.n_action)]], device=self.device, dtype=torch.long)
 
     def optimize_model(self):
+
         if len(self.memory) < self.batch_size:
             return
+        print("OPTIMIZING MODEL")
 
         # batch of transistions to transitions of batch
         transitions = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*transitions))
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
 
         # Mask of non-final states
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=self.device, dtype=torch.uint8)
         non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
 
         # Q(s_t, a)
-        state_action_values = self.policy_q_net(batch.state).gather(1, batch.action)
+        state_action_values = self.policy_q_net(state_batch).gather(1, action_batch)
 
-        #V(s_{t+1}) by older q_net
+        # V(s_{t+1}) by older q_net
         next_state_values = torch.zeros(self.batch_size, device=self.device)
         next_state_values[non_final_mask] = self.target_q_net(non_final_next_states).max(1)[0].detach()
 
         # E[Q(s_t, a)]
-        expected_state_action_values = (next_state_values * self.discount_rate) + batch.reward
+        expected_state_action_values = (next_state_values * self.discount_rate) + reward_batch
 
         # Loss
         loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
-        #optimization
+        # optimization
         self.optimizer.zero_grad()
         loss.backward()
         # for param in self.policy_q_net.parameters():
@@ -143,16 +144,17 @@ class Agent:
         self.optimizer.step()
 
     def get_state_from_observation(self, obs):
-        return torch.cat((self.pretrained_cnn(obs), self.history))
+        obs_reshaped_for_cnn = torch.from_numpy(obs).permute(2,0,1).unsqueeze(0).float()/255
+        features = self.pretrained_cnn(obs_reshaped_for_cnn)
+        return torch.cat((features, self.history.unsqueeze(0)), 1)
 
     def update_history(self, action):
-        self.history[self.n_action:] = self.history[:len(self.history)-self.n_action]
+        self.history[self.n_action:] = self.history[:len(self.history) - self.n_action]
         self.history[:self.n_action] = torch.zeros(self.n_action)
         self.history[action] = torch.tensor([1], device=self.device)
 
     def clear_history(self):
         return torch.zeros(self.n_action * self.n_past_action_to_remember)
-
 
     def train_episode(self, env):
         t = 0
@@ -162,6 +164,7 @@ class Agent:
         past_state = state
         done = False
         while not done:
+            print(t)
             action = self.get_action(state)
             self.update_history(action)
             observation, reward, done, info = env.step(action)
@@ -171,19 +174,16 @@ class Agent:
             past_state = state
 
             self.optimize_model()
-            t+=1
+            t += 1
+
         return t
 
     def train(self, env, nb_episode=100):
         episode_lenghts = []
         for episode in range(nb_episode):
+            print(f"Episode : {episode}")
             episode_lenght = self.train_episode(env)
             episode_lenghts.append(episode_lenght)
-            if episode % self.target_update == 0 :
+            if episode % self.target_update == 0:
                 self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
         return episode_lenghts
-
-
-
-
-

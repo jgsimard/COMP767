@@ -33,12 +33,11 @@ class ProjectEnv(gym.Env):
                  alpha=0.2, max_step = 200, set_name = 'trainval'):
         self.max_step = max_step
         self.context_buffer = 16
-        self.trigger_reward = 3
-        self.trigger_threshold = 0.6 #can be 0.5 but the paper says 0.6
+        self.trigger_reward = 10 #instead of 3
+        self.trigger_threshold = 0.5 #0.6 #can be 0.5 but the paper says 0.6
         self.voc_dataset = gluoncv.data.VOCDetection(root=root, splits=[(2007, set_name)])
 
         self.detected_class = detected_class
-        print(f"This environement is for {self.voc_dataset.classes[detected_class]} et JG!")
         self.detected_class_indexes = self.get_indexes_class(root, set_name)
 
         self.action_space = spaces.Discrete(9)
@@ -52,6 +51,8 @@ class ProjectEnv(gym.Env):
         self.full_scaled_label = None
         self.current_img = None
         self.past_iou = None
+
+        print(f"Environement initializatione done for class : {self.voc_dataset.classes[detected_class]}")
 
     def get_indexes_class(self, root, set_name="trainval"):
         fname = f"{root}/VOC2007/ImageSets/Main/{self.voc_dataset.classes[self.detected_class]}_{set_name}.txt"
@@ -95,7 +96,7 @@ class ProjectEnv(gym.Env):
         y2 = min(self.current_bb.y2 + self.context_buffer, self.output_image_size)
         x1 = max(self.current_bb.x1 - self.context_buffer, 0)
         x2 = min(self.current_bb.x2 + self.context_buffer, self.output_image_size)
-        print("y1, y2, x1, x2", y1, y2, x1, x2)
+        # print("y1, y2, x1, x2", y1, y2, x1, x2)
         real_obs = self.resize_img(self.full_scaled_img[y1:y2, x1:x2, :])
 
         return real_obs
