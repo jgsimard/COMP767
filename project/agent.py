@@ -191,6 +191,7 @@ class Agent:
         self.history = self.clear_history()
         imgs = []
         actions=["reset"]
+        rewards=[0]
         observation = env.reset()
         imgs.append((observation))
         state = self.get_state_from_observation(observation)
@@ -205,5 +206,6 @@ class Agent:
             t += 1
             imgs.append((observation))
             actions.append(env.action_index_to_names[action.item()])
-        return imgs, actions, t
+            rewards.append(reward)
+        return imgs, actions, rewards, t
 

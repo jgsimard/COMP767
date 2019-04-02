@@ -60,6 +60,7 @@ class ProjectEnv(gym.Env):
         self.past_iou = None
 
         self.action_index_to_names={0:"right", 1:"left", 2:"up", 3:"down", 4:"bigger", 5:"smaller", 6:"fatter", 7:"taller", 8:"trigger"}
+        self.action_names_to_index={v: k for k, v in self.action_index_to_names.items()}
 
         print(f"Environement initializatione done for class : {self.voc_dataset.classes[detected_class]}")
 
