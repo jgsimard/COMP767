@@ -1,8 +1,10 @@
-import numpy as np
+import cv2
 import gluoncv
 import gym
+import numpy as np
 from gym import spaces
-import cv2
+import copy
+
 
 class BoundingBox:
     def __init__(self, x1, y1, x2, y2):
@@ -14,18 +16,18 @@ class BoundingBox:
     def area(self):
         if self.x2 < self.x1 or self.y2 < self.y1:
             return 0
-        return (self.x2-self.x1) * (self.y2-self.y1)
+        return (self.x2 - self.x1) * (self.y2 - self.y1)
 
     def __repr__(self):
         return f"(x1,y1)=({self.x1}, {self.y1}), (x2,y2)=({self.x2}, {self.y2})"
 
 
 def intersection_over_union(bb1, bb2):
-    intersection_bb = BoundingBox(x1 = max(bb1.x1, bb2.x1),
-                                  y1 = max(bb1.y1, bb2.y1),
-                                  x2 = min(bb1.x2, bb2.x2),
-                                  y2 = min(bb1.y2, bb2.y2))
-    iou = intersection_bb.area()/(bb1.area() + bb2.area() - intersection_bb.area())
+    intersection_bb = BoundingBox(x1=max(bb1.x1, bb2.x1),
+                                  y1=max(bb1.y1, bb2.y1),
+                                  x2=min(bb1.x2, bb2.x2),
+                                  y2=min(bb1.y2, bb2.y2))
+    iou = intersection_bb.area() / (bb1.area() + bb2.area() - intersection_bb.area())
     if iou > 1:
         print("FAULTY IOU", iou)
         print("bb1", bb1)
@@ -35,17 +37,19 @@ def intersection_over_union(bb1, bb2):
 
 
 class ProjectEnv(gym.Env):
-    def __init__(self, root="/home/jg/MILA/COMP767-Reinforcement_Learning/COMP767/project/data/VOCtrainval_06-Nov-2007/VOCdevkit",
-                 detected_class = 14, #person!
-                 alpha=0.2, max_step = 200, set_name = 'trainval'):
+    def __init__(self,
+                 root="/home/jg/MILA/COMP767-Reinforcement_Learning/COMP767/project/data/VOCtrainval_06-Nov-2007/VOCdevkit",
+                 detected_class=14,  # person!
+                 alpha=0.2, max_step=200, set_name='trainval'):
         self.max_step = max_step
         self.context_buffer = 16
-        self.trigger_reward = 3 #instead of 3
-        self.trigger_threshold = 0.4 #0.6 #can be 0.5 but the paper says 0.6
+        self.trigger_reward = 3  # instead of 3
+        self.trigger_threshold = 0.6  # 0.6 #can be 0.5 but the paper says 0.6
         self.voc_dataset = gluoncv.data.VOCDetection(root=root, splits=[(2007, set_name)])
 
         self.detected_class = detected_class
         self.detected_class_indexes = self.get_indexes_class(root, set_name)
+        self.epoch_size = len(self.detected_class_indexes)
 
         self.action_space = spaces.Discrete(9)
 
@@ -58,9 +62,11 @@ class ProjectEnv(gym.Env):
         self.full_scaled_label = None
         self.current_img = None
         self.past_iou = None
+        self.image_index=0
 
-        self.action_index_to_names={0:"right", 1:"left", 2:"up", 3:"down", 4:"bigger", 5:"smaller", 6:"fatter", 7:"taller", 8:"trigger"}
-        self.action_names_to_index={v: k for k, v in self.action_index_to_names.items()}
+        self.action_index_to_names = {0: "right", 1: "left", 2: "up", 3: "down", 4: "bigger", 5: "smaller", 6: "fatter",
+                                      7: "taller", 8: "trigger"}
+        self.action_names_to_index = {v: k for k, v in self.action_index_to_names.items()}
 
         print(f"Environement initializatione done for class : {self.voc_dataset.classes[detected_class]}")
 
@@ -84,7 +90,7 @@ class ProjectEnv(gym.Env):
     def resize_img(self, img):
         return cv2.resize(img, (self.output_image_size, self.output_image_size))
 
-    def add_ior(self, img, bb, f=4): #ior = inhibition of return
+    def add_ior(self, img, bb, f=4):  # ior = inhibition of return
         w = bb.x2 - bb.x1
         h = bb.y2 - bb.y1
         delta_x = int(w * (1 - 1 / f) / 2)
@@ -95,8 +101,8 @@ class ProjectEnv(gym.Env):
     def init_bb(self):
         return BoundingBox(self.context_buffer,
                            self.context_buffer,
-                           self.output_image_size-self.context_buffer,
-                           self.output_image_size-self.context_buffer)
+                           self.output_image_size - self.context_buffer,
+                           self.output_image_size - self.context_buffer)
 
     def rectangle_at_bb_on_img(self, img, bb, color=(0, 255, 0)):
         cv2.rectangle(img, (bb.x1, bb.y1), (bb.x2, bb.y2), color, 3)
@@ -119,7 +125,7 @@ class ProjectEnv(gym.Env):
         # return fake_obs
 
     def get_next_bb(self, bb, action):
-        new_bb = bb
+        new_bb = copy.deepcopy(bb)
 
         a_w = int(self.alpha * (bb.x2 - bb.x1))
         a_h = int(self.alpha * (bb.y2 - bb.y1))
@@ -169,40 +175,51 @@ class ProjectEnv(gym.Env):
         else:
             new_bb = self.init_bb()
 
-        # print(f"a_w:{a_w}, a_h:{a_h}, delta_x_right:{delta_x_right}, delta_x_left:{delta_x_left}, delta_y_up:{delta_y_up}, delta_y_down:{delta_y_down}")
-        # print("new_bb", bb)
         return new_bb
 
-    #I chose to give the grond truch box with the biggest IoU if multiple target
+    # I chose to give the grond truch box with the biggest IoU if multiple target
     def get_ground_truth_bb(self):
-        ious = [intersection_over_union(self.current_bb, ground_truth_bb) for ground_truth_bb in self.full_scaled_label_bb]
+        ious = [intersection_over_union(self.current_bb, ground_truth_bb) for ground_truth_bb in
+                self.full_scaled_label_bb]
         ground_truth_bb_max_iou = self.full_scaled_label_bb[np.argmax(ious)]
         return ground_truth_bb_max_iou
 
-    def get_transformation_action_reward(self, new_bb, action):
-        new_iou = intersection_over_union(self.get_ground_truth_bb(), new_bb)
-        reward = 1 if new_iou > self.past_iou else -1
-        # print(f"self.past_iou:{self.past_iou}, new_iou{new_iou}")
-        self.past_iou = new_iou
-        return reward
+    def get_transformation_action_reward(self, new_iou):
+        return 1 if new_iou > self.past_iou else -1
 
     def get_trigger_reward(self):
         above_threshold = 1 if self.past_iou > self.trigger_threshold else -1
-        reward = self.trigger_reward * above_threshold
-        return reward
+        return self.trigger_reward * above_threshold
 
-    #TODO
+    def get_positive_reward_actions(self):
+        rewards =[]
+        for action in range(self.action_space.n):
+            if action < self.action_space.n - 1:
+                new_bb = self.get_next_bb(self.current_bb, action)
+                new_iou = intersection_over_union(self.get_ground_truth_bb(), new_bb)
+                reward = self.get_transformation_action_reward(new_iou)
+            else:
+                reward = self.get_trigger_reward()
+            rewards.append(reward)
+        positive_rewards = np.where(np.array(rewards) > 0)[0]
+
+        return positive_rewards
+
+
+    # TODO
     def step(self, action):
         self.t += 1
         done = False
-        if self.t >= self.max_step :
+        if self.t >= self.max_step:
             done = True
 
         new_bb = self.get_next_bb(self.current_bb, action)
-        if action < self.action_space.n -1:
-            reward = self.get_transformation_action_reward(new_bb, action)
+        if action < self.action_space.n - 1:
+            new_iou = intersection_over_union(self.get_ground_truth_bb(), new_bb)
+            reward = self.get_transformation_action_reward(new_iou)
+            self.past_iou = new_iou
         else:
-            print(self.past_iou)
+            print(self.past_iou) # TODO : TO REMOVE
             reward = self.get_trigger_reward()
             self.add_ior(self.full_scaled_img, self.current_bb)
             self.full_scaled_label_bb.remove(self.get_ground_truth_bb())
@@ -216,30 +233,33 @@ class ProjectEnv(gym.Env):
         return obs, reward, done, {}
 
     def filter_labels(self, labels):
-        return labels[labels[:,4] == self.detected_class]
+        return labels[labels[:, 4] == self.detected_class]
 
     def get_labels_bb(self, labels):
-        bbs=[]
+        bbs = []
         for i in range(labels.shape[0]):
-            bbs.append(BoundingBox(int(labels[i,0]), int(labels[i,1]), int(labels[i,2]), int(labels[i,3])))
+            bbs.append(BoundingBox(int(labels[i, 0]), int(labels[i, 1]), int(labels[i, 2]), int(labels[i, 3])))
         return bbs
 
-    #TODO
-    def reset(self):
+    # TODO
+    def reset(self, rand = False):
         self.t = 0
-        image, label = self.voc_dataset[ np.random.choice(self.detected_class_indexes)]
+        if rand:
+            index = np.random.choice(self.detected_class_indexes)
+        else:
+            index = self.image_index
+            self.image_index = (self.image_index + 1)% len(self.detected_class_indexes)
+        image, label = self.voc_dataset[index]
+        # image, label = self.voc_dataset[np.random.choice(self.detected_class_indexes)]
         scaled_image = self.resize_img(image.asnumpy())
 
         y_factor = self.output_image_size / image.shape[0]
         x_factor = self.output_image_size / image.shape[1]
-        scaled_label = self.filter_labels(label) # to keep only the label of the desired detected class
+        scaled_label = self.filter_labels(label)  # to keep only the label of the desired detected class
         scaled_label[:, 0] = (scaled_label[:, 0] * x_factor).astype(int)
         scaled_label[:, 2] = (scaled_label[:, 2] * x_factor).astype(int)
         scaled_label[:, 1] = (scaled_label[:, 1] * y_factor).astype(int)
         scaled_label[:, 3] = (scaled_label[:, 3] * y_factor).astype(int)
-        # print("image.shape", image.shape)
-        # print("label", label)
-        # print("scaled_label", scaled_label)
 
         self.full_scaled_img = scaled_image
         self.full_scaled_label = scaled_label

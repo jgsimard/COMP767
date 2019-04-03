@@ -96,15 +96,20 @@ class Agent:
     def get_greedy_action(self, state):
         return self.policy_q_net(state).max(1)[1].view(1, 1)
 
-    def get_action(self, state):
-        self.t += 1
+    def get_action(self, state, env):
+        # self.t += 1
         threshold = self.eps_end + (self.eps_start - self.eps_end) * math.exp(-1. * self.t / self.eps_decay)
         if random.random() > threshold:
             with torch.no_grad():
                 return self.get_greedy_action(state)
-
         else:
-            return torch.tensor([[random.randrange(self.n_action)]], device=self.device, dtype=torch.long)
+            positive_rewards = env.get_positive_reward_actions()
+            # print("positive_rewards", positive_rewards)
+            if len(positive_rewards)!= 0:
+                action = random.choice(positive_rewards)
+            else:
+                action = random.randrange(self.n_action)
+            return torch.tensor([[action]], device=self.device, dtype=torch.long)
 
     def optimize_model(self):
 
@@ -134,6 +139,7 @@ class Agent:
         expected_state_action_values = (next_state_values * self.discount_rate) + reward_batch
 
         # Loss
+        # loss = nn.CrossEntropyLoss()
         loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
         # optimization
@@ -164,7 +170,7 @@ class Agent:
         past_state = state
         done = False
         while not done:
-            action = self.get_action(state)
+            action = self.get_action(state, env)
             self.update_history(action)
             observation, reward, done, info = env.step(action)
             reward = torch.tensor([reward], device=self.device)
@@ -176,36 +182,40 @@ class Agent:
             t += 1
         return t
 
-    def train(self, env, nb_episode=100):
+    def train(self, env, nb_epoch =1):
         episode_lenghts = []
-        for episode in range(nb_episode):
-            episode_lenght = self.train_episode(env)
-            episode_lenghts.append(episode_lenght)
-            if episode % self.target_update == 0:
-                self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
-            print(f"Episode : {episode}, len : {episode_lenght}")
+        for epoch in range(nb_epoch):
+            for episode in range(env.epoch_size):
+                episode_lenght = self.train_episode(env)
+                episode_lenghts.append(episode_lenght)
+                if episode % self.target_update == 0:
+                    self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
+                print(f"Episode : {episode}, len : {episode_lenght}")
+            self.t+=1
         return episode_lenghts
 
     def test_episode(self, env):
         t = 0
         self.history = self.clear_history()
-        imgs = []
-        actions=["reset"]
-        rewards=[0]
         observation = env.reset()
-        imgs.append((observation))
         state = self.get_state_from_observation(observation)
-        past_state = state
         done = False
+
+        imgs = [observation]
+        actions = ["reset"]
+        rewards = [0]
+        ious = [env.past_iou]
+
         while not done:
-            action = self.get_action(state)
+            action = self.get_greedy_action(state)
             self.update_history(action)
             observation, reward, done, info = env.step(action)
             state = self.get_state_from_observation(observation)
-            past_state = state
+
             t += 1
-            imgs.append((observation))
+            imgs.append(observation)
             actions.append(env.action_index_to_names[action.item()])
             rewards.append(reward)
-        return imgs, actions, rewards, t
+            ious.append(env.past_iou)
+        return imgs, actions, rewards, ious, t
 
