@@ -8,6 +8,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.models as models
 
+from gym_project.envs.object_localization import  intersection_over_union
+
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
 
 
@@ -54,7 +56,7 @@ class DeepQNetwork(nn.Module):
 
 
 class Agent:
-    def __init__(self, env, target_update=10, discout_rate=0.99, eps_start=0.9, eps_end=0.05, eps_decay=200,
+    def __init__(self, env, target_update=10, discout_rate=0.99, eps_start=0.9, eps_end=0.05, eps_decay=5,
                  batch_size=64, memory_size=1000, n_past_action_to_remember=10):
         self.target_update = target_update
         self.discount_rate = discout_rate
@@ -77,8 +79,13 @@ class Agent:
         self.target_q_net.eval()
 
         self.optimizer = optim.Adam(self.policy_q_net.parameters())
+        #self.optimizer = optim.SGD(self.policy_q_net.parameters())
         self.memory = ReplayMemory(memory_size)
 
+
+        self.timestep_until_last_trigger_treshold = 40
+
+        self.current_epoch = 0
         self.t = 0
         self.history = self.clear_history()
         print("Agent initialization done")
@@ -98,7 +105,9 @@ class Agent:
 
     def get_action(self, state, env):
         # self.t += 1
-        threshold = self.eps_end + (self.eps_start - self.eps_end) * math.exp(-1. * self.t / self.eps_decay)
+        #threshold = self.eps_end + (self.eps_start - self.eps_end) * math.exp(-1. * self.t / self.eps_decay)
+        threshold = max(self.eps_start - (self.eps_start - self.eps_end) / self.eps_decay * self.current_epoch, self.eps_end)
+
         if random.random() > threshold:
             with torch.no_grad():
                 return self.get_greedy_action(state)
@@ -182,7 +191,7 @@ class Agent:
             t += 1
         return t
 
-    def train(self, env, nb_epoch =1):
+    def train(self, env, nb_epoch =15):
         episode_lenghts = []
         for epoch in range(nb_epoch):
             for episode in range(env.epoch_size):
@@ -196,6 +205,7 @@ class Agent:
 
     def test_episode(self, env):
         t = 0
+        timestep_until_last_trigger = 0
         self.history = self.clear_history()
         observation = env.reset()
         state = self.get_state_from_observation(observation)
@@ -212,10 +222,19 @@ class Agent:
             observation, reward, done, info = env.step(action)
             state = self.get_state_from_observation(observation)
 
-            t += 1
             imgs.append(observation)
             actions.append(env.action_index_to_names[action.item()])
             rewards.append(reward)
             ious.append(env.past_iou)
+
+
+            if action == env.action_space.n - 1:
+                timestep_until_last_trigger += 1
+            if timestep_until_last_trigger == self.timestep_until_last_trigger_treshold:
+                env.current_bb = env.restart_box()
+                timestep_until_last_trigger = 0
+                env.past_iou = intersection_over_union(env.current_bb, self.get_ground_truth_bb())
+                state = self.get_state_from_observation(env.get_obs())
+            t += 1
         return imgs, actions, rewards, ious, t
 

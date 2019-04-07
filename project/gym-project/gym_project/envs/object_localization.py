@@ -63,6 +63,7 @@ class ProjectEnv(gym.Env):
         self.current_img = None
         self.past_iou = None
         self.image_index=0
+        self.t_image = 0
 
         self.action_index_to_names = {0: "right", 1: "left", 2: "up", 3: "down", 4: "bigger", 5: "smaller", 6: "fatter",
                                       7: "taller", 8: "trigger"}
@@ -103,6 +104,33 @@ class ProjectEnv(gym.Env):
                            self.context_buffer,
                            self.output_image_size - self.context_buffer,
                            self.output_image_size - self.context_buffer)
+
+    def restart_box(self):
+        x = np.random.randint(0,4)
+        percentage = 0.75
+        a = int((self.output_image_size  - self.context_buffer)*(1 - np.sqrt(percentage)))
+        b = int((self.output_image_size  - self.context_buffer)*(np.sqrt(percentage)))
+        #We create another box of area 75% of the previous one
+        if x == 0:
+            return BoundingBox(self.context_buffer,
+                               self.context_buffer,
+                               b,
+                               b)
+        elif x == 1:
+            return BoundingBox(self.context_buffer,
+                               self.context_buffer + a,
+                               b,
+                               self.output_image_size - self.context_buffer)
+        elif x == 2:
+            return BoundingBox(self.context_buffer + a,
+                               self.context_buffer ,
+                               self.output_image_size - self.context_buffer,
+                               b)
+        else:
+            return BoundingBox(self.context_buffer + a,
+                               self.context_buffer + a,
+                               self.output_image_size - self.context_buffer,
+                               self.output_image_size - self.context_buffer)
 
     def rectangle_at_bb_on_img(self, img, bb, color=(0, 255, 0)):
         cv2.rectangle(img, (bb.x1, bb.y1), (bb.x2, bb.y2), color, 3)
@@ -205,9 +233,7 @@ class ProjectEnv(gym.Env):
 
         return positive_rewards
 
-
-    # TODO
-    def step(self, action):
+    def step_train(self, action, go_to_max_iter = False):
         self.t += 1
         done = False
         if self.t >= self.max_step:
@@ -219,18 +245,42 @@ class ProjectEnv(gym.Env):
             reward = self.get_transformation_action_reward(new_iou)
             self.past_iou = new_iou
         else:
-            print(self.past_iou) # TODO : TO REMOVE
+            print(self.past_iou)  # TODO : TO REMOVE
             reward = self.get_trigger_reward()
             self.add_ior(self.full_scaled_img, self.current_bb)
-            self.full_scaled_label_bb.remove(self.get_ground_truth_bb())
-            if len(self.full_scaled_label_bb) == 0:
-                done = True
+            if go_to_max_iter and len(self.full_scaled_label_bb) ==0:
+                self.past_iou = -1
             else:
-                self.past_iou = intersection_over_union(new_bb, self.get_ground_truth_bb())
+                self.full_scaled_label_bb.remove(self.get_ground_truth_bb())
+                if len(self.full_scaled_label_bb) == 0:
+                    done = True
+                else:
+                    self.past_iou = intersection_over_union(new_bb, self.get_ground_truth_bb())
         self.current_bb = new_bb
         obs = self.get_obs()
 
         return obs, reward, done, {}
+
+    def step_testing(self, action):
+        self.t += 1
+
+        new_bb = self.get_next_bb(self.current_bb, action)
+        if action == self.action_space.n - 1:
+            self.add_ior(self.full_scaled_img, self.current_bb)
+        self.current_bb = new_bb
+
+        obs = self.get_obs()
+        reward = 0
+        done = False if self.t < self.max_step else True
+
+        return obs, reward, done, {}
+
+    # TODO
+    def step(self, action, train = True, go_to_max_iter = False):
+        if train:
+            return self.step_train(action, go_to_max_iter)
+        else:
+            return self.step_testing(action)
 
     def filter_labels(self, labels):
         return labels[labels[:, 4] == self.detected_class]
@@ -247,7 +297,7 @@ class ProjectEnv(gym.Env):
         if rand:
             index = np.random.choice(self.detected_class_indexes)
         else:
-            index = self.image_index
+            index = self.detected_class_indexes[self.image_index]
             self.image_index = (self.image_index + 1)% len(self.detected_class_indexes)
         image, label = self.voc_dataset[index]
         # image, label = self.voc_dataset[np.random.choice(self.detected_class_indexes)]
