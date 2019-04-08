@@ -43,9 +43,9 @@ class ProjectEnv(gym.Env):
                  alpha=0.2, max_step=200, set_name='trainval', year=2007):
         self.year = year
         self.max_step = max_step
-        self.context_buffer = 16
-        self.trigger_reward = 3  # instead of 3
-        self.trigger_threshold = 0.6  # 0.6 #can be 0.5 but the paper says 0.6
+        self.context_buffer = 8
+        self.trigger_reward = 10  # instead of 3
+        self.trigger_threshold = 0.5  # 0.6 #can be 0.5 but the paper says 0.6
         self.voc_dataset = gluoncv.data.VOCDetection(root=root, splits=[(year, set_name)])
 
         self.detected_class = detected_class

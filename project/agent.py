@@ -198,6 +198,7 @@ class Agent:
 
             self.optimize_model()
             t += 1
+        self.save_model(self.save_path)
         return t
 
     def train(self, env, nb_epoch=15):
