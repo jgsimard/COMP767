@@ -1,12 +1,13 @@
 import random
 from collections import namedtuple
 
-import math
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.models as models
+from tqdm import tqdm
 
 from gym_project.envs.object_localization import  intersection_over_union
 
@@ -57,7 +58,7 @@ class DeepQNetwork(nn.Module):
 
 class Agent:
     def __init__(self, env, target_update=10, discout_rate=0.99, eps_start=0.9, eps_end=0.05, eps_decay=5,
-                 batch_size=64, memory_size=1000, n_past_action_to_remember=10):
+                 batch_size=64, memory_size=1000, n_past_action_to_remember=10, device = None, save_path=""):
         self.target_update = target_update
         self.discount_rate = discout_rate
         self.n_action = env.action_space.n
@@ -68,7 +69,7 @@ class Agent:
         self.eps_end = eps_end
         self.eps_decay = eps_decay
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device == None else device
         self.pretrained_cnn = self.get_pretrained_cnn()
 
 
@@ -88,7 +89,15 @@ class Agent:
         self.current_epoch = 0
         self.t = 0
         self.history = self.clear_history()
+        self.save_path = save_path
         print("Agent initialization done")
+
+    def save_model(self, path):
+        torch.save(self.policy_q_net.state_dict(), os.path.join(path, 'best_policy_q_net.pt'))
+
+    def load_model(self, path):
+        self.policy_q_net.load_state_dict(torch.load(path, map_location=self.device))
+        self.target_q_net.load_state_dict(torch.load(path, map_location=self.device))
 
     def get_pretrained_cnn(self):
         pretrained_cnn = models.vgg16(pretrained=True)
@@ -191,15 +200,17 @@ class Agent:
             t += 1
         return t
 
-    def train(self, env, nb_epoch =15):
+    def train(self, env, nb_epoch=15):
         episode_lenghts = []
         for epoch in range(nb_epoch):
-            for episode in range(env.epoch_size):
+            print(f"Epoch:{epoch}")
+            for episode in tqdm(range(env.epoch_size)):
                 episode_lenght = self.train_episode(env)
                 episode_lenghts.append(episode_lenght)
                 if episode % self.target_update == 0:
                     self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
-                print(f"Episode : {episode}, len : {episode_lenght}")
+                # print(f"Episode : {episode}, len : {episode_lenght}")
+            self.save_model(self.save_path)
             self.t+=1
         return episode_lenghts
 

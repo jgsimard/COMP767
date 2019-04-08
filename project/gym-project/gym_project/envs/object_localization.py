@@ -245,7 +245,7 @@ class ProjectEnv(gym.Env):
             reward = self.get_transformation_action_reward(new_iou)
             self.past_iou = new_iou
         else:
-            print(self.past_iou)  # TODO : TO REMOVE
+            # print(self.past_iou)  # TODO : TO REMOVE
             reward = self.get_trigger_reward()
             self.add_ior(self.full_scaled_img, self.current_bb)
             if go_to_max_iter and len(self.full_scaled_label_bb) ==0:
