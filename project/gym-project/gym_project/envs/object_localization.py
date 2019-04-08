@@ -40,12 +40,13 @@ class ProjectEnv(gym.Env):
     def __init__(self,
                  root="/home/jg/MILA/COMP767-Reinforcement_Learning/COMP767/project/data/VOCtrainval_06-Nov-2007/VOCdevkit",
                  detected_class=14,  # person!
-                 alpha=0.2, max_step=200, set_name='trainval'):
+                 alpha=0.2, max_step=200, set_name='trainval', year=2007):
+        self.year = year
         self.max_step = max_step
         self.context_buffer = 16
         self.trigger_reward = 3  # instead of 3
         self.trigger_threshold = 0.6  # 0.6 #can be 0.5 but the paper says 0.6
-        self.voc_dataset = gluoncv.data.VOCDetection(root=root, splits=[(2007, set_name)])
+        self.voc_dataset = gluoncv.data.VOCDetection(root=root, splits=[(year, set_name)])
 
         self.detected_class = detected_class
         self.detected_class_indexes = self.get_indexes_class(root, set_name)
@@ -72,7 +73,7 @@ class ProjectEnv(gym.Env):
         print(f"Environement initializatione done for class : {self.voc_dataset.classes[detected_class]}")
 
     def get_indexes_class(self, root, set_name="trainval"):
-        fname = f"{root}/VOC2007/ImageSets/Main/{self.voc_dataset.classes[self.detected_class]}_{set_name}.txt"
+        fname = f"{root}/VOC{self.year}/ImageSets/Main/{self.voc_dataset.classes[self.detected_class]}_{set_name}.txt"
         with open(fname) as f:
             content = f.readlines()
 

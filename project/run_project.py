@@ -50,6 +50,8 @@ parser.add_argument('--epoch', type=int, default=15,
                     help='number of epoch')
 parser.add_argument('--memory_size', type=int, default=10000,
                     help='memory_size')
+parser.add_argument('--year', type=int, default=2007,
+                    help='pascal voc dataset year')
 parser.add_argument('--history_action', type=int, default=10,
                     help='number of past action in a state history')
 parser.add_argument('--save_dir', type=str, default='',
@@ -98,7 +100,8 @@ else:
 
 
 env = object_localization.ProjectEnv(root=args.data,
-                                     detected_class = args.detected_class)
+                                     detected_class = args.detected_class,
+                                     year = args.year)
 agent = Agent(env,
               target_update=args.target_update,
               discout_rate=args.discount_rate,
