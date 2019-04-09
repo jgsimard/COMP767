@@ -119,8 +119,8 @@ class Agent:
             with torch.no_grad():
                 return self.get_greedy_action(state)
         else:
-            positive_rewards=[]
-            # positive_rewards = env.get_positive_reward_actions()
+            # positive_rewards=[]
+            positive_rewards = env.get_positive_reward_actions()
             # print("positive_rewards", positive_rewards)
             if len(positive_rewards)!= 0:
                 action = random.choice(positive_rewards)
@@ -181,6 +181,7 @@ class Agent:
 
     def train_episode(self, env):
         t = 0
+        rewards = []
         self.history = self.clear_history()
         observation = env.reset()
         state = self.get_state_from_observation(observation)
@@ -197,23 +198,28 @@ class Agent:
 
             self.optimize_model()
             t += 1
+            rewards.append(reward)
         self.save_model(self.save_path)
 
-        return t
+        return t, rewards
 
     def train(self, env, nb_epoch=15):
         episode_lenghts = []
+        training_rewards = []
         for epoch in range(nb_epoch):
+            epoch_rewards =[]
             print(f"Epoch:{epoch}")
             for episode in tqdm(range(env.epoch_size)):
-                episode_lenght = self.train_episode(env)
+                episode_lenght, episode_rewards = self.train_episode(env)
                 episode_lenghts.append(episode_lenght)
                 if episode % self.target_update == 0:
                     self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
-                # print(f"Episode : {episode}, len : {episode_lenght}")
+                epoch_rewards.append(episode_rewards)
+                print(episode_rewards)
             self.save_model(self.save_path)
             self.t+=1
-        return episode_lenghts
+            training_rewards.append(epoch_rewards)
+        return episode_lenghts, training_rewards
 
     def test_episode(self, env):
         t = 0
