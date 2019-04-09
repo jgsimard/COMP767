@@ -44,7 +44,7 @@ class DeepQNetwork(nn.Module):
 
         self.linear_1 = nn.Linear(input_size, 1024)
         self.relu_1 = nn.ReLU()
-        self.dropout = nn.Dropout()
+        # self.dropout = nn.Dropout()
         self.linear_2 = nn.Linear(1024, 1024)
         self.relu_2 = nn.ReLU()
         self.linear_out = nn.Linear(1024, n_action)
@@ -101,10 +101,7 @@ class Agent:
 
     def get_pretrained_cnn(self):
         pretrained_cnn = models.vgg16(pretrained=True)
-        # remove the last 3 layers to have 4096 ouput
-        pretrained_cnn.classifier = nn.Sequential(*list(pretrained_cnn.classifier.children())[:-3])
-
-        # make this model not trainable, so that is simply does features extraction
+        pretrained_cnn.classifier = nn.Sequential(*list(pretrained_cnn.classifier.children())[:-2])
         for param in pretrained_cnn.parameters():
             param.requires_grad = False
         return pretrained_cnn.to(self.device)
@@ -121,7 +118,8 @@ class Agent:
             with torch.no_grad():
                 return self.get_greedy_action(state)
         else:
-            positive_rewards = env.get_positive_reward_actions()
+            positive_rewards=[]
+            # positive_rewards = env.get_positive_reward_actions()
             # print("positive_rewards", positive_rewards)
             if len(positive_rewards)!= 0:
                 action = random.choice(positive_rewards)
@@ -157,14 +155,14 @@ class Agent:
         expected_state_action_values = (next_state_values * self.discount_rate) + reward_batch
 
         # Loss
-        # loss = nn.CrossEntropyLoss()
-        loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        # loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
 
         # optimization
         self.optimizer.zero_grad()
         loss.backward()
-        # for param in self.policy_q_net.parameters():
-        #     param.grad.data.clamp_(-1,1)
+        for param in self.policy_q_net.parameters():
+            param.grad.data.clamp_(-1,1)
         self.optimizer.step()
 
     def get_state_from_observation(self, obs):
@@ -199,6 +197,7 @@ class Agent:
             self.optimize_model()
             t += 1
         self.save_model(self.save_path)
+
         return t
 
     def train(self, env, nb_epoch=15):
