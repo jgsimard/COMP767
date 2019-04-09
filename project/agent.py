@@ -50,7 +50,8 @@ class DeepQNetwork(nn.Module):
         self.linear_out = nn.Linear(1024, n_action)
 
     def forward(self, x):
-        out_l1 = self.dropout(self.relu_1(self.linear_1(x)))
+        # out_l1 = self.dropout(self.relu_1(self.linear_1(x)))
+        out_l1 = self.relu_1(self.linear_1(x))
         out_l2 = self.relu_2(self.linear_2(out_l1))
         out = self.linear_out(out_l2)
         return out
