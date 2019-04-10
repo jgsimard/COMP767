@@ -162,8 +162,8 @@ class Agent:
         # optimization
         self.optimizer.zero_grad()
         loss.backward()
-        for param in self.policy_q_net.parameters():
-            param.grad.data.clamp_(-1,1)
+        # for param in self.policy_q_net.parameters():
+        #     param.grad.data.clamp_(-1,1)
         self.optimizer.step()
 
     def get_state_from_observation(self, obs):
@@ -180,7 +180,6 @@ class Agent:
         return torch.zeros(self.n_action * self.n_past_action_to_remember).to(self.device)
 
     def train_episode(self, env):
-        t = 0
         rewards = []
         self.history = self.clear_history()
         observation = env.reset()
@@ -197,29 +196,27 @@ class Agent:
             past_state = state
 
             self.optimize_model()
-            t += 1
             rewards.append(reward)
         self.save_model(self.save_path)
 
-        return t, rewards
+        return rewards
 
     def train(self, env, nb_epoch=15):
-        episode_lenghts = []
         training_rewards = []
         for epoch in range(nb_epoch):
             epoch_rewards =[]
             print(f"Epoch:{epoch}")
             for episode in tqdm(range(env.epoch_size)):
-                episode_lenght, episode_rewards = self.train_episode(env)
-                episode_lenghts.append(episode_lenght)
+                episode_rewards = self.train_episode(env)
                 if episode % self.target_update == 0:
                     self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
-                epoch_rewards.append(episode_rewards)
-                print(episode_rewards)
+                epoch_rewards.append(torch.stack(episode_rewards))
+                # print(episode_rewards)
             self.save_model(self.save_path)
             self.t+=1
             training_rewards.append(epoch_rewards)
-        return episode_lenghts, training_rewards
+            print([torch.sum(episode_r) for episode_r in epoch_rewards])
+        return training_rewards
 
     def test_episode(self, env):
         t = 0
