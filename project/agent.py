@@ -9,7 +9,7 @@ import torch.optim as optim
 import torchvision.models as models
 from tqdm import tqdm
 
-from gym_project.envs.object_localization import  intersection_over_union
+from utils import intersection_over_union
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
 
@@ -38,23 +38,17 @@ class ReplayMemory(object):
 class DeepQNetwork(nn.Module):
     def __init__(self, n_past_action_to_remember=10):
         super(DeepQNetwork, self).__init__()
-        per_trainned_cnn_output_size = 4096
-        n_action = 9
-        input_size = per_trainned_cnn_output_size + n_action * n_past_action_to_remember
+        self.model = nn.Sequential(
+            nn.Linear(4096 + 9 * n_past_action_to_remember, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 9)
+        )
 
-        self.linear_1 = nn.Linear(input_size, 1024)
-        self.relu_1 = nn.ReLU()
-        # self.dropout = nn.Dropout()
-        self.linear_2 = nn.Linear(1024, 1024)
-        self.relu_2 = nn.ReLU()
-        self.linear_out = nn.Linear(1024, n_action)
 
     def forward(self, x):
-        # out_l1 = self.dropout(self.relu_1(self.linear_1(x)))
-        out_l1 = self.relu_1(self.linear_1(x))
-        out_l2 = self.relu_2(self.linear_2(out_l1))
-        out = self.linear_out(out_l2)
-        return out
+        return self.model(x)
 
 
 class Agent:
@@ -102,7 +96,7 @@ class Agent:
 
     def get_pretrained_cnn(self):
         pretrained_cnn = models.vgg16(pretrained=True)
-        pretrained_cnn.classifier = nn.Sequential(*list(pretrained_cnn.classifier.children())[:-2])
+        pretrained_cnn.classifier = nn.Sequential(*list(pretrained_cnn.classifier.children())[:-5])
         for param in pretrained_cnn.parameters():
             param.requires_grad = False
         return pretrained_cnn.to(self.device)

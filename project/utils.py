@@ -1,3 +1,4 @@
+from comet_ml import Experiment
 import cv2
 import gluoncv
 import gym
@@ -6,6 +7,54 @@ from gym import spaces
 import copy
 from matplotlib import pyplot as plt
 import torch
+import sys
+import os
+
+
+##################
+# Logging
+##################
+def get_experiment():
+    return Experiment(api_key="H5Zg5SDrkQeX0bL0sWyGSCdHl",
+                      project_name="general",
+                      workspace="jgsimard")
+
+##################
+# Folder stuff
+##################
+def get_directory_name_with_number(base_path):
+    i = 0
+    while os.path.exists(base_path + "_" + str(i)):
+        i += 1
+    return base_path + "_" + str(i)
+
+def setup_run_folder(args):
+    argsdict = args.__dict__
+    argsdict['code_file'] = sys.argv[0]
+    argsdict['device'] = get_device()
+
+    runs_directory = "runs"
+    run_name = f"detected_class={argsdict['detected_class']}"
+    if not os.path.exists(runs_directory):
+        os.makedirs(runs_directory)
+    base_path = os.path.join(runs_directory, run_name)
+    experiment_path = get_directory_name_with_number(base_path)
+    os.mkdir(experiment_path)
+
+    print("Putting log in %s" % experiment_path)
+    argsdict['save_dir'] = experiment_path
+    with open(os.path.join(experiment_path, 'exp_config.txt'), 'w') as f:
+        for key in sorted(argsdict):
+            f.write(key + '    ' + str(argsdict[key]) + '\n')
+
+    experiment = get_experiment()
+    experiment.log_parameters(argsdict)
+
+    return experiment_path, experiment
+
+##################
+# BOUNDING BOX
+##################
 
 class BoundingBox:
     def __init__(self, x1, y1, x2, y2):
@@ -36,7 +85,9 @@ def intersection_over_union(bb1, bb2):
         print("intersection_bb", intersection_bb)
     return iou
 
-
+##################
+# VOC PASCAL
+##################
 def get_indexes_class(root, voc_dataset, detected_class, year=2007, set_name="trainval"):
     fname = f"{root}/VOC{year}/ImageSets/Main/{voc_dataset.classes[detected_class]}_{set_name}.txt"
     with open(fname) as f:
@@ -67,6 +118,10 @@ def get_labels_bb(labels):
 
 def resize_img(img, output_image_size=224):
     return cv2.resize(img, (output_image_size, output_image_size))
+
+##################
+# CUDA
+##################
 
 def get_device():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
