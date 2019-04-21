@@ -76,5 +76,6 @@ class Evaluator:
 
 
 if __name__ == "__main__":
-    evalutator = Evaluator(1, root="./", make_from_scratch=False)
-    evalutator.train_class(0)
+    evalutator = Evaluator(20, root="./", make_from_scratch=True)
+    for i in range(20):
+        evalutator.train_class(i)
