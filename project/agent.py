@@ -1,13 +1,12 @@
+import os
 import random
 from collections import namedtuple
 
-import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.models as models
-from tqdm import tqdm
 
 from utils import intersection_over_union
 
@@ -46,14 +45,13 @@ class DeepQNetwork(nn.Module):
             nn.Linear(1024, 9)
         )
 
-
     def forward(self, x):
         return self.model(x)
 
 
 class Agent:
     def __init__(self, env, target_update=10, discout_rate=0.99, eps_start=0.9, eps_end=0.05, eps_decay=5,
-                 batch_size=64, memory_size=1000, n_past_action_to_remember=10, device = None, save_path=""):
+                 batch_size=64, memory_size=1000, n_past_action_to_remember=10, device=None, save_path=""):
         self.target_update = target_update
         self.discount_rate = discout_rate
         self.n_action = env.action_space.n
@@ -67,7 +65,6 @@ class Agent:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device == None else device
         self.pretrained_cnn = self.get_pretrained_cnn()
 
-
         self.memory_size = memory_size
         self.policy_q_net = DeepQNetwork(n_past_action_to_remember).to(self.device)
         self.target_q_net = DeepQNetwork(n_past_action_to_remember).to(self.device)
@@ -75,9 +72,7 @@ class Agent:
         self.target_q_net.eval()
 
         self.optimizer = optim.Adam(self.policy_q_net.parameters())
-        #self.optimizer = optim.SGD(self.policy_q_net.parameters())
         self.memory = ReplayMemory(memory_size)
-
 
         self.timestep_until_last_trigger_treshold = 40
 
@@ -104,10 +99,12 @@ class Agent:
     def get_greedy_action(self, state):
         return self.policy_q_net(state).max(1)[1].view(1, 1)
 
+    def get_epsilon_for_epsilon_greedy_policy(self, t):
+        linear_decay = self.eps_start - (self.eps_start - self.eps_end) / self.eps_decay * t
+        return max(linear_decay, self.eps_end)
+
     def get_action(self, state, env):
-        # self.t += 1
-        #threshold = self.eps_end + (self.eps_start - self.eps_end) * math.exp(-1. * self.t / self.eps_decay)
-        threshold = max(self.eps_start - (self.eps_start - self.eps_end) / self.eps_decay * self.current_epoch, self.eps_end)
+        threshold = self.get_epsilon_for_epsilon_greedy_policy(t=self.current_epoch)
 
         if random.random() > threshold:
             with torch.no_grad():
@@ -116,7 +113,7 @@ class Agent:
             # positive_rewards=[]
             positive_rewards = env.get_positive_reward_actions()
             # print("positive_rewards", positive_rewards)
-            if len(positive_rewards)!= 0:
+            if len(positive_rewards) != 0:
                 action = random.choice(positive_rewards)
             else:
                 action = random.randrange(self.n_action)
@@ -133,10 +130,11 @@ class Agent:
         batch = Transition(*zip(*transitions))
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward).float()
+        reward_batch = torch.cat(batch.reward)
 
         # Mask of non-final states
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=self.device, dtype=torch.uint8)
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=self.device,
+                                      dtype=torch.uint8)
         non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
 
         # Q(s_t, a)
@@ -161,7 +159,7 @@ class Agent:
         self.optimizer.step()
 
     def get_state_from_observation(self, obs):
-        obs_reshaped_for_cnn = torch.from_numpy(obs).permute(2,0,1).unsqueeze(0).float().to(self.device)/255
+        obs_reshaped_for_cnn = torch.from_numpy(obs).permute(2, 0, 1).unsqueeze(0).float().to(self.device) / 255
         features = self.pretrained_cnn(obs_reshaped_for_cnn)
         return torch.cat((features, self.history.unsqueeze(0)), 1)
 
@@ -171,7 +169,7 @@ class Agent:
         self.history[action] = torch.tensor([1], device=self.device)
 
     def clear_history(self):
-        return torch.zeros(self.n_action * self.n_past_action_to_remember).to(self.device)
+        return torch.zeros(self.n_action * self.n_past_action_to_remember, device=self.device)
 
     def train_episode(self, env):
         rewards = []
@@ -193,24 +191,7 @@ class Agent:
             rewards.append(reward)
         self.save_model(self.save_path)
 
-        return rewards
-
-    def train(self, env, nb_epoch=15):
-        training_rewards = []
-        for epoch in range(nb_epoch):
-            epoch_rewards =[]
-            print(f"Epoch:{epoch}")
-            for episode in tqdm(range(env.epoch_size)):
-                episode_rewards = self.train_episode(env)
-                if episode % self.target_update == 0:
-                    self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
-                epoch_rewards.append(torch.stack(episode_rewards))
-                # print(episode_rewards)
-            self.save_model(self.save_path)
-            self.t+=1
-            training_rewards.append(epoch_rewards)
-            print([torch.sum(episode_r) for episode_r in epoch_rewards])
-        return training_rewards
+        return torch.cat(rewards)
 
     def test_episode(self, env):
         t = 0
@@ -236,7 +217,6 @@ class Agent:
             rewards.append(reward)
             ious.append(env.past_iou)
 
-
             if action == env.action_space.n - 1:
                 timestep_until_last_trigger += 1
             if timestep_until_last_trigger == self.timestep_until_last_trigger_treshold:
@@ -246,4 +226,3 @@ class Agent:
                 state = self.get_state_from_observation(env.get_obs())
             t += 1
         return imgs, actions, rewards, ious, t
-

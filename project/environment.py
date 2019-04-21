@@ -11,12 +11,18 @@ class Environment(gym.Env):
     def __init__(self,
                  root="/home/jg/MILA/COMP767-Reinforcement_Learning/COMP767/project/data/VOCtrainval_06-Nov-2007/VOCdevkit",
                  detected_class=14,  # person!
-                 alpha=0.2, max_step=200, set_name='trainval', year=2007):
+                 alpha=0.2,
+                 context_buffer = 16,
+                 trigger_reward = 3,
+                 trigger_threshold = 0.6,
+                 max_step=200,
+                 set_name='trainval',
+                 year=2007):
         self.year = year
         self.max_step = max_step
-        self.context_buffer = 16
-        self.trigger_reward = 3  # instead of 3
-        self.trigger_threshold = 0.6  # 0.6 #can be 0.5 but the paper says 0.6
+        self.context_buffer = context_buffer
+        self.trigger_reward = trigger_reward
+        self.trigger_threshold = trigger_threshold
         self.voc_dataset = gluoncv.data.VOCDetection(root=root, splits=[(year, set_name)])
 
         self.detected_class = detected_class
@@ -185,7 +191,7 @@ class Environment(gym.Env):
         return ground_truth_bb_max_iou
 
     def get_transformation_action_reward(self, new_iou):
-        return 1 if new_iou > self.past_iou else -1
+        return 1. if new_iou > self.past_iou else -1.
 
     def get_trigger_reward(self):
         above_threshold = 1 if self.past_iou > self.trigger_threshold else -1

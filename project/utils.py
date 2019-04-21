@@ -1,14 +1,12 @@
-from comet_ml import Experiment
-import cv2
-import gluoncv
-import gym
-import numpy as np
-from gym import spaces
-import copy
-from matplotlib import pyplot as plt
-import torch
-import sys
 import os
+import sys
+
+import cv2
+import torch
+from comet_ml import Experiment
+import matplotlib.pyplot as plt
+import torchvision.utils
+
 
 
 ##################
@@ -16,17 +14,24 @@ import os
 ##################
 def get_experiment():
     return Experiment(api_key="H5Zg5SDrkQeX0bL0sWyGSCdHl",
-                      project_name="general",
+                      project_name="comp767_project",
                       workspace="jgsimard")
+
 
 ##################
 # Folder stuff
 ##################
+
+def make_dir_if_not_exist(dir):
+    if not os.path.exists(dir):
+        os.makedirs(dir)
+
 def get_directory_name_with_number(base_path):
     i = 0
     while os.path.exists(base_path + "_" + str(i)):
         i += 1
     return base_path + "_" + str(i)
+
 
 def setup_run_folder(args):
     argsdict = args.__dict__
@@ -51,6 +56,7 @@ def setup_run_folder(args):
     experiment.log_parameters(argsdict)
 
     return experiment_path, experiment
+
 
 ##################
 # BOUNDING BOX
@@ -85,6 +91,7 @@ def intersection_over_union(bb1, bb2):
         print("intersection_bb", intersection_bb)
     return iou
 
+
 ##################
 # VOC PASCAL
 ##################
@@ -116,12 +123,32 @@ def get_labels_bb(labels):
         bbs.append(BoundingBox(int(labels[i, 0]), int(labels[i, 1]), int(labels[i, 2]), int(labels[i, 3])))
     return bbs
 
+
 def resize_img(img, output_image_size=224):
     return cv2.resize(img, (output_image_size, output_image_size))
 
+
 ##################
-# CUDA
+# TORCH
 ##################
 
 def get_device():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def save_model(model, path):
+    torch.save(model.state_dict(), path)
+
+def load_model(model, path):
+    model.load_state_dict(torch.load(path, map_location= get_device()))
+
+def imshow(inp, title=None):
+    """Imshow for Tensor."""
+    if len(inp.size()) == 4:
+        inp = torchvision.utils.make_grid(inp)
+    inp = inp.numpy().transpose((1, 2, 0))
+    print(inp.shape)
+    inp = (inp - inp.min()) * 1.0 / (inp.max() - inp.min())
+    plt.imshow(inp)
+    if title is not None:
+        plt.title(title)
+    plt.show()
