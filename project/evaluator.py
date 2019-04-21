@@ -39,7 +39,7 @@ class Evaluator:
         self.root = root
         self.nb_classes = nb_classes
         self.batch_size = 32
-        self.nb_epochs = 10
+        self.nb_epochs = 30
         self.base_cnn = models.vgg16(pretrained=True)
         self.base_cnn.classifier = nn.Sequential(*list(self.base_cnn.classifier.children())[:-4])
         for param in self.base_cnn.parameters():
