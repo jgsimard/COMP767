@@ -11,7 +11,7 @@ from utils import BoundingBox, intersection_over_union, get_labels_bb, filter_la
 
 parser = argparse.ArgumentParser(description='build dataset for region ranking')
 parser.add_argument('--root', type=str,
-                    default='/home/jg/MILA/COMP767-Reinforcement_Learning/COMP767/project/data/VOCtrainval_06-Nov-2007/VOCdevkit',
+                    default='./data/VOCtrainval_06-Nov-2007/VOCdevkit',
                     help='location of the data')
 args = parser.parse_args()
 
@@ -77,8 +77,6 @@ for detected_class in tqdm(range(len(voc_dataset.classes))):
         patches, bbs = get_patches(voc_dataset, detected_class, index)
         negatives, n_bbs = get_hard_negatives(voc_dataset, detected_class, index)
 
-        # positives.extend([resize_img(patch) for patch in patches])
-        # hard_negatives.extend([resize_img(patch) for patch in negatives])
         positives.extend(patches)
         hard_negatives.extend(negatives)
 

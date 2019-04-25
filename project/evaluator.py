@@ -15,6 +15,11 @@ image_transform = transforms.Compose([
     transforms.Normalize((.5, .5, .5),
                          (.5, .5, .5))
 ])
+
+transform = transforms.Compose([
+    transforms.ToPILImage(),
+    image_transform
+])
 def get_dataset_dataloader(detected_class, batch_size):
     dataset = torchvision.datasets.ImageFolder(root=f"./dataset/{detected_class}", transform=image_transform)
     dataset_loader = torch.utils.data.DataLoader(dataset,
@@ -22,7 +27,6 @@ def get_dataset_dataloader(detected_class, batch_size):
                                                  shuffle=True,
                                                  num_workers=4)
     return dataset, dataset_loader
-
 
 
 def get_classifier():
@@ -34,9 +38,7 @@ def get_classifier():
 
 
 class Evaluator:
-    def __init__(self, nb_classes, root, make_from_scratch=False):
-        self.experiment = utils.get_experiment()
-        self.root = root
+    def __init__(self, nb_classes=20, make_from_scratch=False):
         self.nb_classes = nb_classes
         self.batch_size = 32
         self.nb_epochs = 30
@@ -47,12 +49,17 @@ class Evaluator:
         self.base_cnn.to(utils.get_device())
 
         self.classifiers = [get_classifier() for _ in range(nb_classes)]
-        if not make_from_scratch:
+        if make_from_scratch:
+            self.experiment = utils.get_experiment()
+        else:
             for i in range(nb_classes):
                 utils.load_model(self.classifiers[i], os.path.join("evaluator", f"{i}_classifier.pt"))
+        print("Evaluator initialized")
 
-    def forward(self, x, class_index):
+
+    def scores(self, x, class_index):
         return self.classifiers[class_index](self.base_cnn(x))
+
 
     def train_class(self, class_index):
         print(f"train class {class_index}")
@@ -62,6 +69,7 @@ class Evaluator:
         for epoch in range(self.nb_epochs):
             for i, (x, y) in enumerate(dataset_loader):
                 x, y = x.to(utils.get_device()), y.to(utils.get_device())
+                print(x)
                 optimizer.zero_grad()
                 y_pred = self.forward(x, class_index)
                 loss = criterion(y_pred.view(-1), y.float())
@@ -76,6 +84,8 @@ class Evaluator:
 
 
 if __name__ == "__main__":
-    evalutator = Evaluator(20, root="./", make_from_scratch=True)
-    for i in range(20):
+    nb_classes = 20
+    evalutator = Evaluator(nb_classes, make_from_scratch=True)
+    # evalutator.train_class(0)
+    for i in range(nb_classes):
         evalutator.train_class(i)

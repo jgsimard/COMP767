@@ -1,12 +1,10 @@
 import os
 import sys
 
-import cv2
-import torch
-from comet_ml import Experiment
 import matplotlib.pyplot as plt
+import torch
 import torchvision.utils
-
+from comet_ml import Experiment
 
 
 ##################
@@ -26,6 +24,7 @@ def make_dir_if_not_exist(dir):
     if not os.path.exists(dir):
         os.makedirs(dir)
 
+
 def get_directory_name_with_number(base_path):
     i = 0
     while os.path.exists(base_path + "_" + str(i)):
@@ -33,7 +32,7 @@ def get_directory_name_with_number(base_path):
     return base_path + "_" + str(i)
 
 
-def setup_run_folder(args):
+def setup_run_folder(args, log=True):
     argsdict = args.__dict__
     argsdict['code_file'] = sys.argv[0]
     argsdict['device'] = get_device()
@@ -52,8 +51,11 @@ def setup_run_folder(args):
         for key in sorted(argsdict):
             f.write(key + '    ' + str(argsdict[key]) + '\n')
 
-    experiment = get_experiment()
-    experiment.log_parameters(argsdict)
+    if log:
+        experiment = get_experiment()
+        experiment.log_parameters(argsdict)
+    else:
+        experiment = None
 
     return experiment_path, experiment
 
@@ -117,16 +119,25 @@ def filter_labels(labels, detected_class):
     return labels[labels[:, 4] == detected_class]
 
 
-def get_labels_bb(labels):
+def get_bbs_from_labels(labels):
     bbs = []
     for i in range(labels.shape[0]):
         bbs.append(BoundingBox(int(labels[i, 0]), int(labels[i, 1]), int(labels[i, 2]), int(labels[i, 3])))
     return bbs
 
 
-def resize_img(img, output_image_size=224):
-    return cv2.resize(img, (output_image_size, output_image_size))
+def scale_labels(input_shape, output_shape, labels):
+    y_factor = output_shape[0] / input_shape[0]
+    x_factor = output_shape[1] / input_shape[1]
+    scaled_labels = labels.copy()
+    scaled_labels[:, 0] = (scaled_labels[:, 0] * x_factor).astype(int)
+    scaled_labels[:, 2] = (scaled_labels[:, 2] * x_factor).astype(int)
+    scaled_labels[:, 1] = (scaled_labels[:, 1] * y_factor).astype(int)
+    scaled_labels[:, 3] = (scaled_labels[:, 3] * y_factor).astype(int)
+    return scaled_labels
 
+def get_bbs(input_shape, output_shape, labels, detected_class):
+    return get_bbs_from_labels(scale_labels(input_shape, output_shape, filter_labels(labels, detected_class)))
 
 ##################
 # TORCH
@@ -135,11 +146,14 @@ def resize_img(img, output_image_size=224):
 def get_device():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def save_model(model, path):
     torch.save(model.state_dict(), path)
 
+
 def load_model(model, path):
-    model.load_state_dict(torch.load(path, map_location= get_device()))
+    model.load_state_dict(torch.load(path, map_location=get_device()))
+
 
 def imshow(inp, title=None):
     """Imshow for Tensor."""

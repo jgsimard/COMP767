@@ -1,1 +1,0 @@
-from gym_project.envs.object_localization import ProjectEnv

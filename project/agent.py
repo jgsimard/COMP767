@@ -1,4 +1,3 @@
-import os
 import random
 from collections import namedtuple
 
@@ -7,8 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.models as models
-
-from utils import intersection_over_union
+import copy
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
 
@@ -50,8 +48,17 @@ class DeepQNetwork(nn.Module):
 
 
 class Agent:
-    def __init__(self, env, target_update=10, discout_rate=0.99, eps_start=0.9, eps_end=0.05, eps_decay=5,
-                 batch_size=64, memory_size=1000, n_past_action_to_remember=10, device=None, save_path=""):
+    def __init__(self, env,
+                 target_update=10,
+                 discout_rate=0.99,
+                 eps_start=0.9,
+                 eps_end=0.05,
+                 eps_decay=5,
+                 batch_size=64,
+                 memory_size=1000,
+                 n_past_action_to_remember=10,
+                 device=None,
+                 save_path=""):
         self.target_update = target_update
         self.discount_rate = discout_rate
         self.n_action = env.action_space.n
@@ -76,18 +83,19 @@ class Agent:
 
         self.timestep_until_last_trigger_treshold = 40
 
+        self.optimization_steps_since_last_update = 0
         self.current_epoch = 0
         self.t = 0
         self.history = self.clear_history()
         self.save_path = save_path
         print("Agent initialization done")
 
-    def save_model(self, path):
-        torch.save(self.policy_q_net.state_dict(), os.path.join(path, 'best_policy_q_net.pt'))
-
-    def load_model(self, path):
-        self.policy_q_net.load_state_dict(torch.load(path, map_location=self.device))
-        self.target_q_net.load_state_dict(torch.load(path, map_location=self.device))
+    # def save_model(self, path):
+    #     torch.save(self.policy_q_net.state_dict(), os.path.join(path, 'best_policy_q_net.pt'))
+    #
+    # def load_model(self, path):
+    #     self.policy_q_net.load_state_dict(torch.load(path, map_location=self.device))
+    #     self.target_q_net.load_state_dict(torch.load(path, map_location=self.device))
 
     def get_pretrained_cnn(self):
         pretrained_cnn = models.vgg16(pretrained=True)
@@ -111,7 +119,7 @@ class Agent:
                 return self.get_greedy_action(state)
         else:
             # positive_rewards=[]
-            positive_rewards = env.get_positive_reward_actions()
+            positive_rewards = env.positive_reward_actions()
             # print("positive_rewards", positive_rewards)
             if len(positive_rewards) != 0:
                 action = random.choice(positive_rewards)
@@ -124,6 +132,10 @@ class Agent:
         if len(self.memory) < self.batch_size:
             return
         # print("OPTIMIZING MODEL")
+        if self.optimization_steps_since_last_update == self.target_update:
+            self.optimization_steps_since_last_update = 0
+            self.target_q_net.load_state_dict(self.policy_q_net.state_dict())
+        self.optimization_steps_since_last_update += 1
 
         # batch of transistions to transitions of batch
         transitions = self.memory.sample(self.batch_size)
@@ -159,12 +171,13 @@ class Agent:
         self.optimizer.step()
 
     def get_state_from_observation(self, obs):
-        obs_reshaped_for_cnn = torch.from_numpy(obs).permute(2, 0, 1).unsqueeze(0).float().to(self.device) / 255
-        features = self.pretrained_cnn(obs_reshaped_for_cnn)
+        index, img, bb = obs
+        obs_for_cnn = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float().to(self.device) / 255
+        features = self.pretrained_cnn(obs_for_cnn)
         return torch.cat((features, self.history.unsqueeze(0)), 1)
 
     def update_history(self, action):
-        self.history[self.n_action:] = self.history[:len(self.history) - self.n_action]
+        self.history[self.n_action:] = self.history[:- self.n_action]
         self.history[:self.n_action] = torch.zeros(self.n_action)
         self.history[action] = torch.tensor([1], device=self.device)
 
@@ -189,40 +202,39 @@ class Agent:
 
             self.optimize_model()
             rewards.append(reward)
-        self.save_model(self.save_path)
-
         return torch.cat(rewards)
 
-    def test_episode(self, env):
-        t = 0
+    def test_episode(self, env, rand=True):
         timestep_until_last_trigger = 0
         self.history = self.clear_history()
-        observation = env.reset()
+        observation = env.reset(rand)
         state = self.get_state_from_observation(observation)
         done = False
 
-        imgs = [observation]
-        actions = ["reset"]
-        rewards = [0]
-        ious = [env.past_iou]
+        image = copy.deepcopy(env.image)
+        bounding_boxes_labels = copy.deepcopy(env.bounding_boxes)
+        bounding_boxes_region_proposal = [observation[2]]
+        trigger_indexes = []
 
+        t = 1
         while not done:
             action = self.get_greedy_action(state)
             self.update_history(action)
-            observation, reward, done, info = env.step(action)
+            observation, reward, done, info = env.step(action, train = False)
             state = self.get_state_from_observation(observation)
 
-            imgs.append(observation)
-            actions.append(env.action_index_to_names[action.item()])
-            rewards.append(reward)
-            ious.append(env.past_iou)
+            bounding_boxes_region_proposal.append(observation[2])
 
             if action == env.action_space.n - 1:
+                trigger_indexes.append(t)
+
+            if action <= env.action_space.n - 1:
                 timestep_until_last_trigger += 1
+
             if timestep_until_last_trigger == self.timestep_until_last_trigger_treshold:
-                env.current_bb = env.restart_box()
+                obs = env.restart()
+                state = self.get_state_from_observation(obs)
                 timestep_until_last_trigger = 0
-                env.past_iou = intersection_over_union(env.current_bb, self.get_ground_truth_bb())
-                state = self.get_state_from_observation(env.get_obs())
             t += 1
-        return imgs, actions, rewards, ious, t
+
+        return image, bounding_boxes_labels, bounding_boxes_region_proposal, trigger_indexes
