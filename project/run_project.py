@@ -25,7 +25,7 @@ parser.add_argument('--data', type=str,
                     default='./data/VOCtrainval_06-Nov-2007/VOCdevkit',
                     help='location of the data')
 parser.add_argument('--batch_size', type=int, default=64, help='size of one minibatch')
-parser.add_argument('--discount_rate', type=float, default=0.9, help='discount_rate')
+parser.add_argument('--discount_rate', type=float, default=0.7, help='discount_rate')
 parser.add_argument('--eps_start', type=float, default=1.0, help='epsilon start')
 parser.add_argument('--eps_end', type=float, default=0.1, help='epsilon end')
 parser.add_argument('--eps_decay', type=int, default=5, help='epsilon decay')
@@ -83,13 +83,14 @@ evaluator = Evaluator()
 #
 ###############################################################################
 
-def testing_episode_average_precision():
-    image, bounding_boxes_labels, bounding_boxes_region_proposal, trigger_indexes = agent.test_episode(env, rand=True)
+def testing_episode_average_precision(rand = True):
+    image, bounding_boxes_labels, bounding_boxes_region_proposal, trigger_indexes = agent.test_episode(env, rand=rand)
     ious = [[utils.intersection_over_union(bb_region_proposal, bb_label) for bb_label in bounding_boxes_labels]
             for bb_region_proposal in bounding_boxes_region_proposal]
     ious = [max(iou) for iou in ious]
-    image_proposals = [image[bb.y1:bb.y2, bb.x1:bb.x2] for bb in bounding_boxes_region_proposal]
-    imgs_tensors = torch.stack([transform(img_prop) for img_prop in image_proposals]).to(utils.get_device())
+    # image_proposals = [image[bb.y1:bb.y2, bb.x1:bb.x2] for bb in bounding_boxes_region_proposal]
+    # imgs_tensors = torch.stack([transform(img_prop) for img_prop in image_proposals]).to(utils.get_device())
+    imgs_tensors = torch.stack([transform(image[bb.y1:bb.y2, bb.x1:bb.x2]) for bb in bounding_boxes_region_proposal]).to(utils.get_device())
     scores = evaluator.scores(imgs_tensors, args.detected_class).view(-1).detach().cpu().numpy()
 
     real = (np.array(ious) > args.iou_threshold).astype(float)
@@ -111,10 +112,10 @@ def testing_episode_average_precision():
     return ap_AAR, ap_TR
 
 
-def testing_mean_average_precision(nb_test=20):
+def testing_mean_average_precision(rand = True, nb_test=50):
     AP_AAR, AP_TR = [], []
     for test in range(nb_test):
-        ap_AAR, ap_TR = testing_episode_average_precision()
+        ap_AAR, ap_TR = testing_episode_average_precision(rand)
         AP_AAR.append(ap_AAR)
         AP_TR.append(ap_TR)
 
@@ -138,6 +139,11 @@ for epoch in range(args.nb_epochs):
     print(mAP_AAR, mAP_TR)
     experiment.log_metric("mAP AAR", mAP_AAR)
     experiment.log_metric("mAP TR", mAP_TR)
+
+mAP_AAR, mAP_TR = testing_mean_average_precision(rand=False, nb_test=env.epoch_size)
+print(mAP_AAR, mAP_TR)
+experiment.log_metric("mAP AAR", mAP_AAR)
+experiment.log_metric("mAP TR", mAP_TR)
 
 agent_net_directory = "agent_net"
 agent_net_filename = os.path.join(agent_net_directory, f"{args.detected_class}_agent_net.pt")

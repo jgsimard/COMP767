@@ -238,3 +238,35 @@ class Agent:
             t += 1
 
         return image, bounding_boxes_labels, bounding_boxes_region_proposal, trigger_indexes
+
+    def show_episode(self, env, image_class_index = None):
+        temp_image_class_index = env.image_class_index
+        if image_class_index != None:
+           env.image_class_index = image_class_index
+        rand = True if image_class_index == None else False
+
+        done = False
+        self.history = self.clear_history()
+        observation = env.reset(rand)
+        state = self.get_state_from_observation(observation)
+
+        imgs, actions, rewards, ious = [observation[1]], [-1], [0], [env.past_iou]
+        t=0
+
+        while not done:
+            action = self.get_greedy_action(state)
+            self.update_history(action)
+            observation, reward, done, info = env.step(action, train = True)
+            state = self.get_state_from_observation(observation)
+
+
+            imgs.append(observation[1])
+            actions.append(action.item())
+            rewards.append(reward)
+            ious.append(env.past_iou)
+            t+=1
+        if image_class_index != None:
+           env.image_class_index = temp_image_class_index
+        return imgs, actions, rewards, ious, t
+
+
