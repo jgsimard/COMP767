@@ -1,5 +1,5 @@
 import numpy as np
-from agent import ApproximateAgent, DiscreteAgent
+from hw2.agent import ApproximateAgent, DiscreteAgent
 from utils import  History, softmax
 
 
