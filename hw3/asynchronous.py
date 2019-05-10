@@ -10,6 +10,8 @@ import torch.multiprocessing as mp
 import gym
 from hw2 import function_approximation as FA
 
+import numpy as np
+
 
 class SharedAdam(optim.Adam):
     """Implements Adam algorithm with shared states.
@@ -78,36 +80,81 @@ class SharedAdam(optim.Adam):
 
         return loss
 
+def normalized_columns_initializer(weights, std=1.0):
+    out = torch.randn(weights.size())
+    out *= std / torch.sqrt(out.pow(2).sum(1, keepdim=True))
+    return out
+
+
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        weight_shape = list(m.weight.data.size())
+        fan_in = np.prod(weight_shape[1:4])
+        fan_out = np.prod(weight_shape[2:4]) * weight_shape[0]
+        w_bound = np.sqrt(6. / (fan_in + fan_out))
+        m.weight.data.uniform_(-w_bound, w_bound)
+        m.bias.data.fill_(0)
+    elif classname.find('Linear') != -1:
+        weight_shape = list(m.weight.data.size())
+        fan_in = weight_shape[1]
+        fan_out = weight_shape[0]
+        w_bound = np.sqrt(6. / (fan_in + fan_out))
+        m.weight.data.uniform_(-w_bound, w_bound)
+        m.bias.data.fill_(0)
+
+
+
 class ActorCriticModel(nn.Module):
     def __init__(self, nb_input, nb_action = 3):
         super(ActorCriticModel, self).__init__()
-        self.shared = nn.Sequential(
-            nn.Linear(nb_input, 16),
-            nn.ReLU(),
-            nn.Linear(16, 32),
-            nn.ReLU(),
-            nn.Linear(32, 64),
-            nn.ReLU(),
-            nn.Linear(64, 128),
-            nn.ReLU(),
-        )
-        self.actor_linear = nn.Linear(128, nb_action)
-        self.citirc_linear = nn.Linear(128, 1)
+        self.actor_linear = nn.Linear(nb_input, nb_action)
+        self.citirc_linear = nn.Linear(nb_input, 1)
 
     def forward(self, x):
-        shared_representation = self.shared(x)
-        return self.actor_linear(shared_representation), self.citirc_linear(shared_representation)
+        return self.actor_linear(x), self.citirc_linear(x)
+
+# class ActorCriticModel(nn.Module):
+#     def __init__(self, nb_input, nb_action = 3):
+#         super(ActorCriticModel, self).__init__()
+#         self.shared = nn.Sequential(
+#             nn.Linear(nb_input, 128),
+#             nn.ReLU(),
+#         )
+#         self.actor_linear = nn.Linear(128, nb_action)
+#         self.citirc_linear = nn.Linear(128, 1)
+#
+#         self.apply(weights_init)
+#
+#     def forward(self, x):
+#         shared_representation = self.shared(x)
+#         return self.actor_linear(shared_representation), self.citirc_linear(shared_representation)
+
+
+def ensure_shared_grads(model, shared_model):
+    for param, shared_param in zip(model.parameters(),
+                                   shared_model.parameters()):
+        if shared_param.grad is not None:
+            shared_param._grad += param.grad
+        shared_param._grad = param.grad
+
+
+def state_from_obs(obs, fa):
+    return torch.from_numpy(fa.get_state_feature_vector(obs)).float().unsqueeze(0)
 
 def train(actor_critic_shared,
           rank,
           counter,
           lock,
+          episode_counter,
+          episode_lock,
+          fa,
           optimizer=None,
           seed=0,
           max_total_step = 10000,
-          n_bins=32,
-          n_tilings=1,
-          discount_factor = 0.99,
+          learning_rate=1e-3,
+          entropy_coef = 0.01,
+          discount_factor = 0.999,
           env_name = 'MountainCar-v0',
           max_episode_lenght = 200):
 
@@ -119,47 +166,43 @@ def train(actor_critic_shared,
     torch.manual_seed(manual_seed)
     env.seed(manual_seed)
 
-    # fa = FA.TileCoding(n_bins=n_bins,
-    #                    n_tilings=n_tilings,
-    #                    observation_space=env.observation_space,
-    #                    action_space=env.action_space)
-    # feature_vector_dim = env.observation_space.shape[0] + env.action_space.n
-    feature_vector_dim = env.observation_space.shape[0]
-    actor_critic = ActorCriticModel(nb_input= feature_vector_dim, nb_action=env.action_space.n)
+    actor_critic = ActorCriticModel(nb_input= fa.size, nb_action=env.action_space.n)
+    actor_critic.train()
 
     if optimizer == None:
-        optimizer = optim.Adam(actor_critic_shared.parameters())
+        optimizer = optim.Adam(actor_critic_shared.parameters(), lr=learning_rate)
 
     while True:
         actor_critic.load_state_dict(actor_critic_shared.state_dict())
+        # print("not shared \n", actor_critic.actor_linear.weight)
         episode_length = 0 # t in the paper
 
         obs = env.reset()
-        state = torch.from_numpy(obs).float().unsqueeze(0)
+        state = state_from_obs(obs, fa)
 
         action_log_probs =[]
         rewards = []
         states = [state]
-        entopies = []
+        entropies = []
         state_values = []
 
         while True:
             episode_length += 1
-            action_values, state_value = actor_critic(state)
-            actions_prob = F.softmax(action_values, dim=-1)
-            actions_log_prob = F.log_softmax(action_values, dim=-1)
-            # entropy = -(actions_log_prob * actions_prob).sum(1, keepdim=True)
+            # print(state)
+            actor_values, critic_value = actor_critic(state)
+            actions_prob = F.softmax(actor_values, dim=-1)
+            actions_log_prob = F.log_softmax(actor_values, dim=-1)
+            entropy = -(actions_log_prob * actions_prob).sum(1, keepdim=True)
 
             action = actions_prob.multinomial(num_samples=1).detach()
-            action_log_prob = actions_log_prob.gather(1, action)
             obs, reward, done, _ = env.step(action.numpy()[0,0]) #done says if it is a terminal state
-            state = torch.from_numpy(obs).float().unsqueeze(0)
+            state = state_from_obs(obs, fa)
 
-            action_log_probs.append(action_log_prob)
+            action_log_probs.append(actions_log_prob.gather(1, action))
             states.append(state)
             rewards.append(reward)
-            # entopies.append(entropy)
-            state_values.append(state_value)
+            entropies.append(entropy)
+            state_values.append(critic_value)
 
             with lock:
                 counter.value += 1
@@ -168,51 +211,72 @@ def train(actor_critic_shared,
                 break
 
         if done:
-            R = 0
+            R = torch.zeros(1,1)
         else:
-            _, state_value = actor_critic(state)
-            R = state_value
+            _, critic_value = actor_critic(state)
+            R = critic_value.detatch()
 
+        state_values.append(R)
         actor_loss = 0
         critic_loss = 0
         for i in reversed(range(len(rewards))):
             R = discount_factor * R + rewards[i]
             advantage = R - state_values[i]
 
-            actor_loss += action_log_probs[i] * advantage #use Generalized advantage estimation if I have the time
+            actor_loss = actor_loss - action_log_probs[i] * advantage - entropy_coef * entropies[i]#use Generalized advantage estimation if I have the time
             critic_loss += advantage.pow(2)
 
+        # print(f"actor_loss={actor_loss}, critic_loss={critic_loss}")
+        # print(R)
         optimizer.zero_grad()
         total_loss = actor_loss + critic_loss
         total_loss.backward()
+        # print(f"total_loss={total_loss}")
+        # print(actor_critic.actor_linear.weight.grad)
 
-        for param, shared_param in zip(actor_critic.parameters(),
-                                       actor_critic_shared.parameters()):
-            if shared_param.grad is not None:
-                break
-            shared_param._grad = param.grad
+        ensure_shared_grads(actor_critic, actor_critic_shared)
+
+        # print(actor_critic.actor_linear.weight)
+        # print(actor_critic_shared.actor_linear.weight)
         optimizer.step()
+        # print(actor_critic.actor_linear.weight)
+        # print(actor_critic_shared.actor_linear.weight)
 
-        print(f"Rank {rank}, episode length = {episode_length}")
+        with episode_lock:
+            episode_counter.value += 1
+            print(f"Rank {rank}, episode_counter={episode_counter.value}, episode length = {episode_length}")
 
         if counter.value > max_total_step:
+            print("not shared, end \n", actor_critic.actor_linear.weight)
             return
 
 
 if __name__ == "__main__":
-    seed = 1234
+    seed = 123
     env_name = 'MountainCar-v0'
+    # env_name = 'Pendulum-v0'
     env = gym.make(env_name)
 
-    actor_critic_shared = ActorCriticModel(nb_input=env.observation_space.shape[0],
+    n_bins = 8
+    n_tilings = 5
+    learning_rate = 1e-1
+    entropy_coef = 0.1
+    discount_factor = 0.99
+
+    fa = FA.TileCoding(n_bins=n_bins,
+                       n_tilings=n_tilings,
+                       observation_space=env.observation_space)
+    actor_critic_shared = ActorCriticModel(nb_input=fa.size,
                                            nb_action=env.action_space.n)
     actor_critic_shared.share_memory()
+    print("shared\n", actor_critic_shared.actor_linear.weight)
+
 
     # shared_optim = False
     shared_optim = True
 
     if shared_optim:
-        optimizer = SharedAdam(actor_critic_shared.parameters())
+        optimizer = SharedAdam(actor_critic_shared.parameters(), lr=learning_rate)
         optimizer.share_memory()
     else:
         optimizer = None
@@ -221,13 +285,32 @@ if __name__ == "__main__":
     counter = mp.Value("i", 0)
     lock = mp.Lock()
 
+    episode_counter = mp.Value("i", 0)
+    episode_lock = mp.Lock()
+
     nb_process = 8
-    max_total_step = 100000
+    max_total_step = 100000000
     processes = []
     for rank in range(0, nb_process):
-        p = mp.Process(target=train, args=(actor_critic_shared, rank, counter, lock, optimizer, seed, max_total_step))
+        p = mp.Process(target=train,
+                       args=(actor_critic_shared,
+                             rank,
+                             counter,
+                             lock,
+                             episode_counter,
+                             episode_lock,
+                             fa,
+                             optimizer,
+                             seed,
+                             max_total_step,
+                             learning_rate,
+                             entropy_coef,
+                             discount_factor,
+                             env_name))
         p.start()
         processes.append(p)
     [p.join() for p in processes]
+
+    # print(actor_critic_shared.actor_linear.weight)
 
 
